@@ -216,6 +216,7 @@ let S=load()||{event:'Event baru',prof:'foot',speed:3,color:'#e8590c',pts:[],pos
 function normState(s){
   s.show=Object.assign({rute:1,pos:1,park:1,alt:1,fas:1},s.show||{});
   s.alt=s.alt||[];s.sign=s.sign||[];s.tutup=s.tutup||[];s.fas=s.fas||[];s.bld=s.bld||[];s.trees=s.trees||[];
+  if(s.freeRoad==null)s.freeRoad=1;
   s.doc=s.doc||{tgl:'',latar:''};
   (s.pos||[]).forEach(p=>{
     if(!p.inst){
@@ -302,24 +303,76 @@ function arrowsFor(legs){
   }
   return out;
 }
+// Pemotong otomatis lonjakan putar-balik (U-Turn spike) akibat jalan 2 lajur / median
+function cleanLeg(cs){
+  if(!cs||cs.length<4)return cs;
+  let pts=cs.filter((q,i)=>i===0||map.distance(cs[i-1],q)>0.5);
+  for(let pass=0;pass<3;pass++){
+    const n=pts.length;if(n<4)break;
+    const cum=[0];
+    for(let i=1;i<n;i++)cum.push(cum[i-1]+map.distance(pts[i-1],pts[i]));
+    let cutI=-1,cutJ=-1,bestGain=0;
+    for(let i=0;i<n-2;i++){
+      for(let j=n-1;j>=i+2;j--){
+        const dDirect=map.distance(pts[i],pts[j]);
+        const dLoop=cum[j]-cum[i];
+        // Jika titik i dan j berdekatan (<= 32m, misal menyeberang median 2 lajur) tapi jalurnya memutar jauh (> 55m dan > 3x jarak langsung)
+        if(dDirect<=32&&dLoop>Math.max(55,dDirect*3.2)&&(dLoop-dDirect)>bestGain){
+          bestGain=dLoop-dDirect;cutI=i;cutJ=j;break;
+        }
+      }
+    }
+    if(cutI>=0){
+      pts=[...pts.slice(0,cutI+1),...pts.slice(cutJ)];
+    }else break;
+  }
+  return pts;
+}
+function legDist(cs){
+  let d=0;for(let i=1;i<cs.length;i++)d+=map.distance(cs[i-1],cs[i]);return d;
+}
 async function route(){
   const id=++rid;
   if(S.pts.length<2){R={dist:0,names:[],legs:[],err:''};drawRoute();stats();return}
   const c=S.pts.map(p=>p.lng+','+p.lat).join(';');
+  // Jika mode Bebas Satu Arah & Anti U-Turn aktif, gunakan profil foot di OSRM agar tidak dipaksa putar balik di jalan satu arah/median
+  const rProf=S.freeRoad?'foot':S.prof;
   try{
-    const r=await fetch(`https://routing.openstreetmap.de/routed-${S.prof}/route/v1/driving/${c}?overview=false&geometries=geojson&steps=true`);
+    const r=await fetch(`https://routing.openstreetmap.de/routed-${rProf}/route/v1/driving/${c}?overview=false&geometries=geojson&steps=true`);
     const j=await r.json();
     if(id!==rid)return;
     if(j.code!=='Ok')throw 0;
-    const rt=j.routes[0],names=[];
-    const inf=[];
-    const legs=rt.legs.map(l=>{const cs=[],ln=[];let u=0;l.steps.forEach(s=>{if(!s.name&&s.distance>=40)u=1;s.geometry.coordinates.forEach(x=>cs.push([x[1],x[0]]));if(s.name&&ln[ln.length-1]!==s.name)ln.push(s.name);if(s.name&&names[names.length-1]!==s.name)names.push(s.name)});inf.push({d:l.distance,n:ln,u});return cs});
-    R={dist:rt.distance,names,legs,info:inf,arrows:arrowsFor(legs),err:''};
+    const rt=j.routes[0],names=[],inf=[];
+    let totD=0;
+    const legs=rt.legs.map((l,li)=>{
+      const pA=S.pts[li],pB=S.pts[li+1];
+      if(pA&&pA.direct){
+        const dLine=[[pA.lat,pA.lng],[pB.lat,pB.lng]],dd=map.distance(dLine[0],dLine[1]);
+        totD+=dd;inf.push({d:dd,n:pA.road?[pA.road]:[],u:1});return dLine;
+      }
+      const raw=[],stepPts=[];let u=0;
+      l.steps.forEach(s=>{
+        if(!s.name&&s.distance>=40)u=1;
+        s.geometry.coordinates.forEach(x=>{const pt=[x[1],x[0]];raw.push(pt);if(s.name)stepPts.push({pt,name:s.name})});
+      });
+      const cs=S.freeRoad?cleanLeg(raw):raw;
+      const dClean=legDist(cs);totD+=dClean;
+      // Hanya ambil nama jalan yang titiknya masih berada di dekat jalur bersih (bukan di dalam U-turn yang sudah dipotong)
+      const ln=[];
+      stepPts.forEach(sp=>{
+        if(!sp.name||ln[ln.length-1]===sp.name)return;
+        const keep=!S.freeRoad||cs.some(q=>map.distance(q,sp.pt)<=25);
+        if(keep){ln.push(sp.name);if(names[names.length-1]!==sp.name)names.push(sp.name)}
+      });
+      inf.push({d:dClean,n:ln,u});
+      return cs;
+    });
+    R={dist:totD,names,legs,info:inf,arrows:arrowsFor(legs),err:''};
   }catch(e){
     if(id!==rid)return;
     R={dist:straight(),names:[],legs:[],err:'Routing gagal, memakai garis lurus sementara'};
   }
-  drawRoute();stats();
+  drawRoute();stats();if(ED.on)edDraw();
 }
 function addVia(ll){
   let b=0,m=1e12;
@@ -469,8 +522,9 @@ async function routeAlt(a){
     if(tk!==AT[a.id])return;
     if(j.code!=='Ok')throw 0;
     const names=[];
-    const legs=j.routes[0].legs.map(l=>{const cs=[];l.steps.forEach(s=>{s.geometry.coordinates.forEach(x=>cs.push([x[1],x[0]]));if(s.name&&names[names.length-1]!==s.name)names.push(s.name)});return cs});
-    AR[a.id]={legs,dist:j.routes[0].distance};
+    let totAlt=0;
+    const legs=j.routes[0].legs.map(l=>{const raw=[];l.steps.forEach(s=>{s.geometry.coordinates.forEach(x=>raw.push([x[1],x[0]]));if(s.name&&names[names.length-1]!==s.name)names.push(s.name)});const cs=cleanLeg(raw);totAlt+=legDist(cs);return cs});
+    AR[a.id]={legs,dist:totAlt};
     const f=names[0]||'',t2=names[names.length-1]||'';let ch=0;
     if(a.from===undefined||a.from===a.af){if(a.from!==f)ch=1;a.from=a.af=f}
     if(a.to===undefined||a.to===a.at){if(a.to!==t2)ch=1;a.to=a.at=t2}
@@ -2196,15 +2250,26 @@ function ui(){
   <div class="row"><input id="q" placeholder="Cari lokasi, misal: Alun-alun Rengat"><button data-a="cari">Cari</button></div>
   <div class="g3"><select data-g="prof"><option value="foot">Jalan kaki / pawai</option><option value="car">Mobil</option><option value="bike">Sepeda</option></select>
   <input data-g="speed" type="number" min="0.5" step="0.5" value="${S.speed}" title="Kecepatan km/jam"><input data-g="color" type="color" value="${S.color}" title="Warna rute"></div>
+  <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;background:#f8fafc;padding:5px 8px;border-radius:6px;border:1px solid var(--line)" title="Mencegah rute memutar jauh ke U-turn saat melewati jalan dua lajur atau jalan satu arah"><input type="checkbox" data-g="freeRoad" style="width:auto" ${S.freeRoad?'checked':''}> <span><b>Anti U-Turn &amp; Bebas Satu Arah</b> (Mode Event/Karnaval)</span></label>
   <div id="tg">${[['rute','Rute'],['pos','Pos'],['park','Parkir'],['alt','Alih'],['fas','Darurat']].map(t=>`<button data-a="tog" data-v="${t[0]}" class="${S.show[t[0]]?'on':''}" title="Tampilkan atau sembunyikan ${t[1]}">${S.show[t[0]]?'●':'○'} ${t[1]}</button>`).join('')}</div>
   <div class="st" id="stats"></div>`;
   $('#hd [data-g=prof]').value=S.prof;
   $('#tabs').innerHTML=[['rute','Rute'],['pos','Pos ('+S.pos.length+')'],['parkir','Parkir ('+S.park.length+')'],['alih','Alih ('+(S.alt.length+S.tutup.length)+')'],['fas','VIP ('+S.fas.length+')']].map(t=>`<button data-a="tab" data-v="${t[0]}" class="${tab===t[0]?'on':''}">${t[1]}</button>`).join('');
   let h='';
   if(tab==='rute'){
-    h=`<div class="mut">Klik peta untuk menambah titik. Klik garis rute untuk merapikan agar menempel ke jalan; ini hanya titik bantu, bukan titik baru. Seret titik untuk memindah, klik kanan untuk menghapus.</div>`;
+    h=`<div class="mut">Klik peta untuk menambah titik. Klik garis rute untuk merapikan agar menempel ke jalan; ini hanya titik bantu, bukan titik baru. Klik tombol <b>Jalan/Lurus</b> jika ingin segmen tertentu ditarik garis lurus (misal memotong lapangan).</div>`;
+    const mainPts=S.pts.filter(p=>!p.via);
     let k=0;
-    S.pts.forEach(p=>{if(p.via)return;k++;h+=`<div class="row"><b style="width:22px">${k}</b><input data-t="pts" data-id="${p.id}" data-f="name" value="${esc(p.name)}" placeholder="Titik ${k}"><button class="dg" data-a="del" data-t="pts" data-id="${p.id}">Hapus</button></div>`});
+    S.pts.forEach((p,idx)=>{
+      if(p.via)return;k++;
+      const isLast=k===mainPts.length;
+      h+=`<div class="row" style="align-items:center"><b style="width:20px">${k}</b><input data-t="pts" data-id="${p.id}" data-f="name" value="${esc(p.name)}" placeholder="Titik ${k}">`+
+      (!isLast?`<button data-a="dir" data-id="${p.id}" title="Ubah cara sambung dari Titik ${k} ke Titik ${k+1}: Ikuti Jalan atau Garis Lurus" style="font-size:11px;padding:5px 7px;white-space:nowrap;${p.direct?'background:#eff6ff;border-color:#1c7ed6;color:#1c7ed6;font-weight:700':''}">${p.direct?'&#128207; Lurus':'&#128739; Jalan'}</button>`:'')+
+      `<button class="dg" data-a="del" data-t="pts" data-id="${p.id}" style="padding:5px 8px">Hapus</button></div>`;
+    });
+    if(mainPts.length>=2){
+      h+=`<div class="row"><button data-a="loop" style="flex:1;font-size:12px" title="Tambahkan titik akhir yang kembali ke titik Start">&#128260; Kembali ke Start (Loop)</button><button data-a="rev" style="flex:1;font-size:12px" title="Balik arah urutan rute dari Finish ke Start">&#8645; Balik Arah Rute</button></div>`;
+    }
     h+=`<button class="dg" data-a="clr">Hapus semua rute</button>`;
   }else if(tab==='pos'){
     h=`<div class="rkp"><b>Rekap Personil: <span id="rk_tot">${rk.tot}</span> Orang (${S.pos.length} Pos)</b>
@@ -2262,7 +2327,10 @@ const A=document.querySelector('aside');
 A.addEventListener('focusin',e=>{if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT')snapshotBefore()});
 A.addEventListener('input',e=>{
   const d=e.target.dataset;
-  if(d.g){S[d.g]=d.g==='speed'?(parseFloat(e.target.value)||3):e.target.value;save();if(d.g==='prof')route();if(d.g==='color')drawRoute();stats()}
+  if(d.g){
+    if(d.g==='freeRoad'){S.freeRoad=e.target.checked?1:0;save();route();return}
+    S[d.g]=d.g==='speed'?(parseFloat(e.target.value)||3):e.target.value;save();if(d.g==='prof')route();if(d.g==='color')drawRoute();stats();
+  }
   else if(d.ins){
     const p=S.pos.find(x=>x.id==d.id);
     if(p){
@@ -2296,6 +2364,17 @@ A.addEventListener('click',e=>{
   else if(a==='edit'){sel=sel==+d.id?null:+d.id;draw();ui()}
   else if(a==='del'){pushHist();S[d.t]=S[d.t].filter(x=>x.id!=d.id);if(sel==d.id)sel=null;if(dAlt==d.id)dAlt=null;if(dTutup==d.id)dTutup=null;cur();delete AR[d.id];save();draw();route();ui()}
   else if(a==='goto'){const p=S[d.t].find(x=>x.id==d.id);if(p)map.setView([p.lat,p.lng],17)}
+  else if(a==='dir'){
+    const p=S.pts.find(x=>x.id==d.id);
+    if(p){pushHist();p.direct=p.direct?0:1;commit();toast(p.direct?'Segmen diubah ke Garis Lurus':'Segmen mengikuti jalan')}
+  }
+  else if(a==='loop'){
+    const first=S.pts.find(p=>!p.via);
+    if(first){pushHist();S.pts.push({id:S.nid++,lat:first.lat,lng:first.lng,name:(first.name||'Start')+' (Finish)'});commit();toast('Rute ditutup kembali ke titik Start')}
+  }
+  else if(a==='rev'){
+    if(S.pts.length>1){pushHist();S.pts.reverse();commit();toast('Arah urutan rute dibalik')}
+  }
   else if(a==='clr'){if(confirm('Hapus semua titik rute?')){pushHist();S.pts=[];commit()}}
   else if(a==='addtutup'){pushHist();const n2={id:S.nid++,name:'Jl. Ditutup '+(S.tutup.length+1),status:'Tutup Total',jam:'06.30-10.00',pts:[]};S.tutup.push(n2);S.show.alt=1;dTutup=n2.id;dAlt=null;arm=null;cur();save();draw();ui();toast('Klik peta berurutan untuk menggambar garis penutup jalan.')}
   else if(a==='drawtutup'){dTutup=dTutup==+d.id?null:+d.id;if(dTutup)dAlt=null;arm=null;cur();ui()}
