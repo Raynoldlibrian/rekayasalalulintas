@@ -834,7 +834,7 @@ async function openSim(){
 }
 function closeSim(){stopRec(true);sim.play=false;sim.on=false;cancelAnimationFrame(sim.craf);$('#sim').classList.remove('on');cuteStop();if(SM){SM.remove();SM=null}}
 /* ---------- rekam & unduh video animasi ---------- */
-const REC={im:{},mr:null,ch:[],cv:null,cx:null,W:0,H:0,mime:'',t0:0};
+const REC={wc:null,busy:false,save:true,im:{},mr:null,ch:[],cv:null,cx:null,W:0,H:0,mime:'',t0:0};
 function recSrc(){return sim.mode==='imut'?(CR.rd&&CR.rd.domElement):(SM&&SM.getCanvas())}
 function recRR(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath()}
 function recDraw(){
@@ -879,8 +879,56 @@ function recDraw0(){
   const bw=w-pd*2;c.fillStyle='#d0d7e2';c.fillRect(pd*2,pd+h-10*u,bw,5*u);
   c.fillStyle=S.color||'#1c7ed6';c.fillRect(pd*2,pd+h-10*u,bw*(sim.tot?sim.d/sim.tot:0),5*u);
   c.restore();
+  const wq=REC.wc;
+  if(wq){
+    const now=performance.now();
+    if(now-wq.last>=30&&wq.enc.encodeQueueSize<12&&wq.enc.state==='configured'){
+      wq.last=now;
+      const fr=new VideoFrame(REC.cv,{timestamp:Math.round((now-wq.t0)*1000),duration:33333});
+      try{wq.enc.encode(fr,{keyFrame:wq.n%60===0})}finally{fr.close()}
+      wq.n++;
+    }
+  }
 }
-function startRec(){
+/* encoder MP4 (H.264) lewat WebCodecs + mp4-muxer; dipakai kalau MediaRecorder browser tidak bisa MP4 (mis. Firefox) */
+async function recWC(w0,h0){
+  await loadJs('https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.js','Mp4Muxer');
+  const W=w0||REC.W,H=h0||REC.H;let cfg=null;
+  for(const c of ['avc1.640033','avc1.64002A','avc1.640028','avc1.4D0028','avc1.42E01F']){
+    const x={codec:c,width:W,height:H,bitrate:8e6,framerate:30};
+    try{const r=await VideoEncoder.isConfigSupported(x);if(r&&r.supported){cfg=Object.assign({},x,r.config||{});break}}catch(e){}
+  }
+  if(!cfg)throw new Error('H.264 tidak didukung');
+  const muxer=new Mp4Muxer.Muxer({target:new Mp4Muxer.ArrayBufferTarget(),video:{codec:'avc',width:W,height:H},fastStart:'in-memory',firstTimestampBehavior:'offset'});
+  const enc=new VideoEncoder({output:(ch,meta)=>{try{muxer.addVideoChunk(ch,meta)}catch(e){console.error(e)}},error:e=>console.error('VideoEncoder',e)});
+  enc.configure(cfg);
+  return{muxer,enc,t0:performance.now(),last:-1e9,n:0};
+}
+async function recWCStop(){
+  const w=REC.wc;REC.wc=null;if(!w)return;
+  try{
+    await w.enc.flush();w.enc.close();w.muxer.finalize();
+    const buf=w.muxer.target.buffer;
+    if(!REC.save)return;
+    if(w.n<2||buf.byteLength<2000){toast('Perekaman gagal: tidak ada frame yang terekam ('+w.n+' frame). Coba Chrome/Edge dan biarkan tab tetap terlihat.');return}
+    const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([buf],{type:'video/mp4'}));
+    a.download='simulasi-'+(String(S.event||'rute').trim().replace(/[^\w\-]+/g,'_')||'rute')+'.mp4';
+    document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),20000);
+    toast('Video diunduh (MP4)');
+  }catch(e){console.error(e);toast('Gagal menyusun MP4: '+(e.message||e))}
+}
+function recGo(){
+  $('#srec').innerHTML='&#9632; Berhenti & unduh';$('#srec').classList.add('rec');
+  sim.d=0;sim.play=true;$('#spl').innerHTML='&#10074;&#10074; Jeda';upd();
+  sim.last=performance.now();requestAnimationFrame(frame);
+  toast('Merekam... video otomatis diunduh saat rute selesai');
+}
+async function startRec(){
+  if(REC.busy||REC.mr)return;
+  REC.busy=true;
+  try{await startRec0()}finally{REC.busy=false}
+}
+async function startRec0(){
   if(!sim.on)return;
   if(!window.MediaRecorder||!HTMLCanvasElement.prototype.captureStream){toast('Browser tidak mendukung perekaman video. Gunakan Chrome/Edge terbaru.');return}
   if(sim.mode==='imut'&&!CR.on){toast('Tunggu tampilan 3D selesai dimuat');return}
@@ -890,6 +938,17 @@ function startRec(){
   REC.cv=document.createElement('canvas');REC.cv.width=REC.W;REC.cv.height=REC.H;REC.cx=REC.cv.getContext('2d');
   const ms=['video/mp4;codecs=avc1.640028','video/mp4;codecs=avc1.42E01E','video/mp4;codecs=avc1','video/mp4;codecs=h264','video/mp4','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
   REC.mime=ms.find(m=>MediaRecorder.isTypeSupported(m))||'';
+  if((window.REC_FORCE_WC||!/mp4/.test(REC.mime))&&window.VideoEncoder&&window.VideoFrame){
+    try{
+      toast('Menyiapkan encoder MP4...');
+      const wc=await recWC();
+      if(!sim.on){try{wc.enc.close()}catch(e){}return}
+      wc.t0=performance.now();REC.wc=wc;REC.save=true;
+      REC.mr={state:'recording',mimeType:'video/mp4',stop(){recWCStop()}};
+      REC.nf=0;REC.err=0;clearInterval(REC.iv);REC.iv=setInterval(recDraw,33);recDraw();
+      recGo();return;
+    }catch(e){console.warn('Encoder MP4 tidak tersedia, memakai WebM',e);REC.wc=null}
+  }
   let st;try{
     st=REC.cv.captureStream(30);
     REC.mr=new MediaRecorder(st,Object.assign({videoBitsPerSecond:8e6},REC.mime?{mimeType:REC.mime}:{}));
@@ -908,14 +967,11 @@ function startRec(){
     REC.ch=[];toast('Video diunduh ('+ext.toUpperCase()+')');
   };
   mr.start(500);REC.nf=0;REC.err=0;clearInterval(REC.iv);REC.iv=setInterval(recDraw,33);recDraw();
-  $('#srec').innerHTML='&#9632; Berhenti & unduh';$('#srec').classList.add('rec');
-  sim.d=0;sim.play=true;$('#spl').innerHTML='&#10074;&#10074; Jeda';upd();
-  sim.last=performance.now();requestAnimationFrame(frame);
-  toast('Merekam... video otomatis diunduh saat rute selesai');
+  recGo();
 }
 function stopRec(save){
   const mr=REC.mr;if(!mr)return;
-  REC.mr=null;clearInterval(REC.iv);
+  REC.mr=null;clearInterval(REC.iv);REC.save=!!save;
   if(!save)REC.ch=[];
   try{if(mr.state!=='inactive')mr.stop()}catch(e){}
   const b=$('#srec');if(b){b.innerHTML='&#9210; Rekam video';b.classList.remove('rec')}
@@ -1940,18 +1996,57 @@ function aniLoop(ts){
     AN.t+=dtm;const D=+$('#ard').value||20;
     if(AN.t>D+3){AN.play=false;AN.t=D+3;$('#apl').innerHTML='&#9654; Putar ulang';aniStopRec()}
   }
-  if(AN.pp.length)aniDraw();
+  if(AN.pp.length){
+    aniDraw();
+    const wq=AN.wc;
+    if(wq){
+      const now=performance.now();
+      if(now-wq.last>=30&&wq.enc.encodeQueueSize<12&&wq.enc.state==='configured'){
+        wq.last=now;
+        const fr=new VideoFrame(AN.cv,{timestamp:Math.round((now-wq.t0)*1000),duration:33333});
+        try{wq.enc.encode(fr,{keyFrame:wq.n%60===0})}finally{fr.close()}
+        wq.n++;
+      }
+    }
+  }
 }
-function aniRec(){
-  if(!window.MediaRecorder||!AN.cv.captureStream){toast('Browser ini belum mendukung perekaman video');return}
+async function aniRec(){
   if(AN.rec)return;
-  const mt=['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find(m=>MediaRecorder.isTypeSupported(m));
+  const ms=['video/mp4;codecs=avc1.640028','video/mp4;codecs=avc1.42E01E','video/mp4;codecs=avc1','video/mp4;codecs=h264','video/mp4','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
+  const mt=(window.MediaRecorder&&ms.find(m=>MediaRecorder.isTypeSupported(m)))||'';
+  if((window.REC_FORCE_WC||!/mp4/.test(mt))&&window.VideoEncoder&&window.VideoFrame){
+    try{
+      $('#arec').disabled=true;$('#ast').textContent='Menyiapkan encoder MP4...';
+      const wc=await recWC(AN.W,AN.H);
+      if(!AN.on){try{wc.enc.close()}catch(e){}return}
+      wc.t0=performance.now();AN.wc=wc;
+      AN.rec={state:'recording',stop:async()=>{
+        const w=AN.wc;AN.wc=null;
+        if(!w){AN.rec=null;$('#arec').disabled=false;return}
+        try{
+          await w.enc.flush();w.enc.close();w.muxer.finalize();
+          const buf=w.muxer.target.buffer;
+          if(AN.rec&&AN.rec.onstop!==null&&w.n>=2&&buf.byteLength>=2000){
+            const u=URL.createObjectURL(new Blob([buf],{type:'video/mp4'})),a=document.createElement('a');
+            a.href=u;a.download=(S.event||'rute').replace(/\W+/g,'-')+'-animasi.mp4';
+            document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),10000);
+            $('#ast').textContent='Video tersimpan (MP4).';
+          }
+        }catch(e){console.error(e);$('#ast').textContent='Gagal menyimpan MP4.'}
+        AN.rec=null;$('#arec').disabled=false;
+      }};
+      AN.t=0;AN.play=true;$('#apl').innerHTML='&#10074;&#10074; Jeda';$('#ast').textContent='Merekam MP4... jangan tutup jendela ini sampai selesai.';
+      return;
+    }catch(e){console.warn('Encoder MP4 gagal di animasi rute, memakai MediaRecorder',e);AN.wc=null;$('#arec').disabled=false}
+  }
+  if(!window.MediaRecorder||!AN.cv.captureStream){toast('Browser ini belum mendukung perekaman video');return}
   const rec=new MediaRecorder(AN.cv.captureStream(30),mt?{mimeType:mt,videoBitsPerSecond:6000000}:{}),ch=[];
   rec.ondataavailable=e=>{if(e.data&&e.data.size)ch.push(e.data)};
   rec.onstop=()=>{
-    const bl=new Blob(ch,{type:rec.mimeType||'video/webm'}),u=URL.createObjectURL(bl),a=document.createElement('a');
-    a.href=u;a.download=(S.event||'rute').replace(/\W+/g,'-')+'-animasi.webm';a.click();setTimeout(()=>URL.revokeObjectURL(u),3000);
-    AN.rec=null;$('#arec').disabled=false;$('#ast').textContent='Video tersimpan.';
+    const ext=(rec.mimeType||mt).includes('mp4')?'mp4':'webm';
+    const bl=new Blob(ch,{type:rec.mimeType||mt||'video/webm'}),u=URL.createObjectURL(bl),a=document.createElement('a');
+    a.href=u;a.download=(S.event||'rute').replace(/\W+/g,'-')+'-animasi.'+ext;a.click();setTimeout(()=>URL.revokeObjectURL(u),3000);
+    AN.rec=null;$('#arec').disabled=false;$('#ast').textContent='Video tersimpan ('+ext.toUpperCase()+').';
   };
   AN.rec=rec;AN.t=0;AN.play=true;$('#arec').disabled=true;$('#apl').innerHTML='&#10074;&#10074; Jeda';$('#ast').textContent='Merekam... jangan tutup jendela ini sampai selesai.';rec.start();
 }
@@ -1966,7 +2061,7 @@ $('#abld').addEventListener('click',()=>{AN.play=false;$('#apl').innerHTML='&#96
 $('#agaya').addEventListener('change',async()=>{if(AN.on&&!AN.rec){await aniPrep()}});
 $('#arasio').addEventListener('change',async()=>{if(AN.on&&!AN.rec){AN.play=false;$('#apl').innerHTML='&#9654; Putar';await aniPrep()}});
 $('#ax').addEventListener('click',()=>{
-  if(AN.rec){AN.rec.onstop=()=>{AN.rec=null;$('#arec').disabled=false};aniStopRec()}
+  if(AN.rec){if(AN.wc){try{AN.wc.enc.close()}catch(e){}AN.wc=null;AN.rec=null;$('#arec').disabled=false}else{AN.rec.onstop=()=>{AN.rec=null;$('#arec').disabled=false};aniStopRec()}}
   AN.on=false;AN.play=false;cancelAnimationFrame(AN.raf);$('#ani').classList.remove('on');
 });
 
