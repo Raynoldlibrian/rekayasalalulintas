@@ -793,7 +793,7 @@ async function openSim(){
   plist();
   if(SM){SM.remove();SM=null}
   if(mode==='imut'){cuteStart();return}
-  SM=new maplibregl.Map({container:'sm',style:STY[mode],center:[C[0][1],C[0][0]],zoom:17,pitch:62,maxPitch:80});SM.on('render',recDraw);
+  SM=new maplibregl.Map({container:'sm',style:STY[mode],center:[C[0][1],C[0][0]],zoom:17,pitch:62,maxPitch:80,canvasContextAttributes:{preserveDrawingBuffer:true}});SM.on('render',recDraw);
   SM.on('load',()=>{addSimLayers();addSimMarkers();sim.bear=sim.cb=bearAt(0);if($('#sca').value==='ikut')SM.jumpTo({center:[C[0][1],C[0][0]],bearing:sim.bear});else simFit(0);upd();cancelAnimationFrame(sim.craf);patwalFrame()});
 }
 function closeSim(){stopRec(true);sim.play=false;sim.on=false;cancelAnimationFrame(sim.craf);$('#sim').classList.remove('on');cuteStop();if(SM){SM.remove();SM=null}}
@@ -802,10 +802,13 @@ const REC={im:{},mr:null,ch:[],cv:null,cx:null,W:0,H:0,mime:'',t0:0};
 function recSrc(){return sim.mode==='imut'?(CR.rd&&CR.rd.domElement):(SM&&SM.getCanvas())}
 function recRR(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath()}
 function recDraw(){
+  try{recDraw0()}catch(e){if(!REC.err){REC.err=1;console.error('recDraw',e)}}
+}
+function recDraw0(){
   if(!REC.mr)return;
   const s=recSrc();if(!s||!s.width)return;
   const c=REC.cx,W=REC.W,H=REC.H;
-  c.drawImage(s,0,0,W,H);
+  c.drawImage(s,0,0,W,H);REC.nf=(REC.nf||0)+1;
   if(sim.mode!=='imut'&&SM){
     const k=W/s.clientWidth,br=SM.getBearing();
     sim.mk.forEach(m=>{
@@ -853,7 +856,7 @@ function startRec(){
   const sc=Math.min(1,1920/s.width);
   REC.W=Math.max(2,Math.round(s.width*sc/2)*2);REC.H=Math.max(2,Math.round(s.height*sc/2)*2);
   REC.cv=document.createElement('canvas');REC.cv.width=REC.W;REC.cv.height=REC.H;REC.cx=REC.cv.getContext('2d');
-  const ms=['video/mp4;codecs=avc1','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
+  const ms=['video/mp4;codecs=avc1.640028','video/mp4;codecs=avc1.42E01E','video/mp4;codecs=avc1','video/mp4;codecs=h264','video/mp4','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
   REC.mime=ms.find(m=>MediaRecorder.isTypeSupported(m))||'';
   let st;try{
     st=REC.cv.captureStream(30);
@@ -864,7 +867,7 @@ function startRec(){
   mr.ondataavailable=e=>{if(e.data&&e.data.size)REC.ch.push(e.data)};
   mr.onstop=()=>{
     st.getTracks().forEach(t=>t.stop());
-    if(!REC.ch.length){toast('Video kosong, tidak ada yang diunduh');return}
+    const sz=REC.ch.reduce((a,b)=>a+b.size,0);if(!REC.ch.length||sz<5000){toast('Perekaman gagal: tidak ada frame yang terekam ('+(REC.nf||0)+' frame). Coba Chrome/Edge dan biarkan tab tetap terlihat.');REC.ch=[];return}
     const ext=(mr.mimeType||REC.mime).includes('mp4')?'mp4':'webm';
     const blob=new Blob(REC.ch,{type:mr.mimeType||REC.mime||'video/webm'});
     const a=document.createElement('a');a.href=URL.createObjectURL(blob);
@@ -872,7 +875,7 @@ function startRec(){
     document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),20000);
     REC.ch=[];toast('Video diunduh ('+ext.toUpperCase()+')');
   };
-  mr.start(500);
+  mr.start(500);REC.nf=0;REC.err=0;clearInterval(REC.iv);REC.iv=setInterval(recDraw,33);recDraw();
   $('#srec').innerHTML='&#9632; Berhenti & unduh';$('#srec').classList.add('rec');
   sim.d=0;sim.play=true;$('#spl').innerHTML='&#10074;&#10074; Jeda';upd();
   sim.last=performance.now();requestAnimationFrame(frame);
@@ -880,7 +883,7 @@ function startRec(){
 }
 function stopRec(save){
   const mr=REC.mr;if(!mr)return;
-  REC.mr=null;
+  REC.mr=null;clearInterval(REC.iv);
   if(!save)REC.ch=[];
   try{if(mr.state!=='inactive')mr.stop()}catch(e){}
   const b=$('#srec');if(b){b.innerHTML='&#9210; Rekam video';b.classList.remove('rec')}
@@ -1113,7 +1116,7 @@ async function cuteBuild(host,bd,say){
   const c0=bd.getCenter(),A0=c0.lat,L0=c0.lng,kx=111320*Math.cos(A0*Math.PI/180),ky=110540;
   const pr=(la,ln)=>[(ln-L0)*kx,-(la-A0)*ky];
   const W=host.clientWidth||800,H=host.clientHeight||600,sat=baseSat();
-  const rd=new T.WebGLRenderer({antialias:!lite});
+  const rd=new T.WebGLRenderer({antialias:!lite,preserveDrawingBuffer:true});
   rd.setPixelRatio(Math.min(window.devicePixelRatio||1,lite?1:1.5));rd.setSize(W,H);
   rd.shadowMap.enabled=!lite;rd.shadowMap.type=T.PCFSoftShadowMap;
   host.appendChild(rd.domElement);
