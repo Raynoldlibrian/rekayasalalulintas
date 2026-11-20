@@ -98,7 +98,7 @@ button.dg{color:#b42318}
 #sp{position:absolute;left:12px;top:12px;width:min(300px,80vw);max-height:46vh;overflow:auto;background:#fffffff2;border-radius:10px;padding:10px 12px;z-index:2;font-size:13px}
 #sx{position:absolute;right:12px;top:12px;z-index:2}
 #sb{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;width:min(920px,96vw);background:#fffffff2;border-radius:10px;padding:8px 12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;z-index:2}
-#sb input[type=range]{flex:1;min-width:140px;padding:0}
+#srec.rec{background:#dc2626;color:#fff;border-color:#dc2626}#sb input[type=range]{flex:1;min-width:140px;padding:0}
 #sb select,#sb input[type=time]{width:auto}
 .mk.p{transition:transform .2s,background .2s}
 .mk.p.on{background:#16a34a;transform:scale(1.35)}
@@ -160,7 +160,7 @@ button.dg{color:#b42318}
 <div id="sim"><div id="sm"></div><div id="sc3"></div>
   <div id="sp"><b id="st1"></b><div id="st2" style="margin:4px 0"></div><div id="st3"></div></div>
   <button id="sx" class="pr">Tutup</button>
-  <div id="sb"><button id="spl" class="pr">&#9654; Putar</button><button id="srs">&#9198;</button>
+  <div id="sb"><button id="spl" class="pr">&#9654; Putar</button><button id="srs">&#9198;</button><button id="srec" title="Putar simulasi dari awal sampai akhir sambil merekam, lalu unduh video">&#9210; Rekam video</button>
     <select id="ssp" title="Kecepatan simulasi"><option value="10">10x</option><option value="30" selected>30x</option><option value="60">60x</option><option value="120">120x</option></select>
     <input type="range" id="ssl" min="0" max="100" value="0">
     <select id="sca"><option value="semua">Seluruh rute</option><option value="ikut">Kamera ikut</option><option value="bebas">Kamera bebas</option></select>
@@ -739,7 +739,7 @@ function frame(ts){
   const dt=Math.min(.1,(ts-sim.last)/1000);sim.last=ts;
   sim.d=Math.min(sim.tot,sim.d+dt*(S.speed||3)/3.6*(+$('#ssp').value));
   upd();
-  if(sim.d>=sim.tot){sim.play=false;$('#spl').innerHTML='&#9654; Putar ulang';return}
+  if(sim.d>=sim.tot){sim.play=false;$('#spl').innerHTML='&#9654; Putar ulang';if(REC.mr)setTimeout(()=>stopRec(true),900);return}
   requestAnimationFrame(frame);
 }
 function addSimLayers(){
@@ -759,18 +759,18 @@ function addSimLayers(){
 }
 function addSimMarkers(){
   sim.mk.forEach(m=>m.remove());sim.mk=[];sim.pm=[];
-  const add=(h,ll,o)=>{const d=document.createElement('div');d.innerHTML=h;const m=new maplibregl.Marker(Object.assign({element:d},o)).setLngLat([ll[1],ll[0]]).addTo(SM);sim.mk.push(m);return d};
+  const add=(h,ll,o,sp)=>{const d=document.createElement('div');d.innerHTML=h;const m=new maplibregl.Marker(Object.assign({element:d},o)).setLngLat([ll[1],ll[0]]).addTo(SM);m._sp=sp;sim.mk.push(m);return d};
   let k=0;
-  S.pts.forEach((p,i)=>{if(p.via)return;k++;add(`<div class="mk s" style="background:${i===0?'#14263b':i===S.pts.length-1?'#2f9e44':S.color}">${k}</div>`,[p.lat,p.lng])});
-  S.pos.forEach((p,i)=>{sim.pm[i]=add(`<div class="mk p">P${i+1}</div>`,[p.lat,p.lng]).firstChild});
+  S.pts.forEach((p,i)=>{if(p.via)return;k++;add(`<div class="mk s" style="background:${i===0?'#14263b':i===S.pts.length-1?'#2f9e44':S.color}">${k}</div>`,[p.lat,p.lng],null,{t:'c',txt:String(k),bg:i===0?'#14263b':i===S.pts.length-1?'#2f9e44':S.color})});
+  S.pos.forEach((p,i)=>{sim.pm[i]=add(`<div class="mk p">P${i+1}</div>`,[p.lat,p.lng],null,{t:'p',txt:'P'+(i+1),i}).firstChild});
   S.alt.forEach(a=>{
     if(a.pts.length<2)return;
     const lg=altLegs(a),g=lg[lg.length-1],l=g.length,b=l>1?brg(g[Math.max(0,l-5)],g[l-1]):0,e=a.pts[a.pts.length-1],q=fwd(e,(b+180)%360,12);
-    add(`<svg width="34" height="34" viewBox="0 0 24 24" style="display:block"><path d="M12 1.5 22 22 12 17 2 22Z" fill="${a.color||'#7c3aed'}" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg>`,q,{rotation:b,rotationAlignment:'map',pitchAlignment:'map'});
+    add(`<svg width="34" height="34" viewBox="0 0 24 24" style="display:block"><path d="M12 1.5 22 22 12 17 2 22Z" fill="${a.color||'#7c3aed'}" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg>`,q,{rotation:b,rotationAlignment:'map',pitchAlignment:'map'},{t:'s',svg:`<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24"><path d="M12 1.5 22 22 12 17 2 22Z" fill="${a.color||'#7c3aed'}" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg>`,sz:34,rot:b});
   });
-  S.sign.forEach(g=>add(`<div style="filter:drop-shadow(0 2px 3px #0009)">${signSvg(g.type,36)}</div>`,[g.lat,g.lng]));
-  S.fas.forEach(f=>add(`<div style="filter:drop-shadow(0 2px 3px #0009)">${fasSvg(f.type,34)}</div>`,[f.lat,f.lng]));
-  S.tutup.forEach(t=>t.pts.forEach((q,i)=>{if(i===0||i===t.pts.length-1)add(`<div class="mk s" style="background:#dc2626;border-color:#fef08a">\u26d4</div>`,q)}));
+  S.sign.forEach(g=>add(`<div style="filter:drop-shadow(0 2px 3px #0009)">${signSvg(g.type,36)}</div>`,[g.lat,g.lng],null,{t:'s',svg:signSvg(g.type,36),sz:36}));
+  S.fas.forEach(f=>add(`<div style="filter:drop-shadow(0 2px 3px #0009)">${fasSvg(f.type,34)}</div>`,[f.lat,f.lng],null,{t:'s',svg:fasSvg(f.type,34),sz:34}));
+  S.tutup.forEach(t=>t.pts.forEach((q,i)=>{if(i===0||i===t.pts.length-1)add(`<div class="mk s" style="background:#dc2626;border-color:#fef08a">\u26d4</div>`,q,null,{t:'c',txt:'\u26d4',bg:'#dc2626',bd:'#fef08a'})}));
   const c0=sim.C[0],pcv=document.createElement('canvas');
   pcv.width=pcv.height=180;pcv.style.pointerEvents='none';sim.pc=pcv.getContext('2d');
   sim.cv=new maplibregl.Marker({element:pcv}).setLngLat([c0[1],c0[0]]).addTo(SM);
@@ -793,10 +793,99 @@ async function openSim(){
   plist();
   if(SM){SM.remove();SM=null}
   if(mode==='imut'){cuteStart();return}
-  SM=new maplibregl.Map({container:'sm',style:STY[mode],center:[C[0][1],C[0][0]],zoom:17,pitch:62,maxPitch:80});
+  SM=new maplibregl.Map({container:'sm',style:STY[mode],center:[C[0][1],C[0][0]],zoom:17,pitch:62,maxPitch:80});SM.on('render',recDraw);
   SM.on('load',()=>{addSimLayers();addSimMarkers();sim.bear=sim.cb=bearAt(0);if($('#sca').value==='ikut')SM.jumpTo({center:[C[0][1],C[0][0]],bearing:sim.bear});else simFit(0);upd();cancelAnimationFrame(sim.craf);patwalFrame()});
 }
-function closeSim(){sim.play=false;sim.on=false;cancelAnimationFrame(sim.craf);$('#sim').classList.remove('on');cuteStop();if(SM){SM.remove();SM=null}}
+function closeSim(){stopRec(true);sim.play=false;sim.on=false;cancelAnimationFrame(sim.craf);$('#sim').classList.remove('on');cuteStop();if(SM){SM.remove();SM=null}}
+/* ---------- rekam & unduh video animasi ---------- */
+const REC={im:{},mr:null,ch:[],cv:null,cx:null,W:0,H:0,mime:'',t0:0};
+function recSrc(){return sim.mode==='imut'?(CR.rd&&CR.rd.domElement):(SM&&SM.getCanvas())}
+function recRR(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath()}
+function recDraw(){
+  if(!REC.mr)return;
+  const s=recSrc();if(!s||!s.width)return;
+  const c=REC.cx,W=REC.W,H=REC.H;
+  c.drawImage(s,0,0,W,H);
+  if(sim.mode!=='imut'&&SM){
+    const k=W/s.clientWidth,br=SM.getBearing();
+    sim.mk.forEach(m=>{
+      const sp=m._sp;if(!sp)return;
+      const q=SM.project(m.getLngLat()),x=q.x*k,y=q.y*k;
+      if(x<-60||y<-60||x>W+60||y>H+60)return;
+      c.save();c.translate(x,y);
+      if(sp.t==='s'){
+        let im=REC.im[sp.svg];
+        if(!im){im=REC.im[sp.svg]=new Image();im.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(/xmlns=/.test(sp.svg)?sp.svg:sp.svg.replace('<svg','<svg xmlns="http://www.w3.org/2000/svg"'))}
+        if(im.complete&&im.naturalWidth){if(sp.rot!=null)c.rotate((sp.rot-br)*Math.PI/180);const z=sp.sz*k;c.shadowColor='rgba(0,0,0,.55)';c.shadowBlur=4*k;c.drawImage(im,-z/2,-z/2,z,z)}
+      }else{
+        let on=false;
+        if(sp.t==='p'){const el=sim.pm[sp.i];on=!!(el&&el.classList.contains('on'));if(on)c.scale(1.35,1.35)}
+        const z=(sp.t==='p'?30:26)*k;
+        c.shadowColor='rgba(0,0,0,.4)';c.shadowBlur=3*k;
+        c.fillStyle=sp.t==='p'?(on?'#16a34a':'#14263b'):sp.bg;c.strokeStyle=sp.bd||'#fff';c.lineWidth=2*k;
+        if(sp.t==='p')recRR(c,-z/2,-z/2,z,z,8*k);else{c.beginPath();c.arc(0,0,z/2,0,Math.PI*2)}
+        c.fill();c.shadowBlur=0;c.stroke();
+        c.fillStyle='#fff';c.font='bold '+(12*k)+'px system-ui,Arial,sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(sp.txt,0,k*.5);
+      }
+      c.restore();
+    });
+  }
+  if(sim.mode!=='imut'&&SM&&sim.cv){
+    const el=sim.cv.getElement(),q=SM.project(sim.cv.getLngLat()),k=W/s.clientWidth;
+    try{c.drawImage(el,(q.x-el.width/2)*k,(q.y-el.height/2)*k,el.width*k,el.height*k)}catch(e){}
+  }
+  const u=H/720,pd=14*u;
+  c.save();c.font=`bold ${Math.round(20*u)}px system-ui,Arial,sans-serif`;
+  const t1=S.event||'Event',t2=`Jam ${clk(sim.d)}  \u2022  ${(sim.d/1000).toFixed(2)} / ${(sim.tot/1000).toFixed(2)} km`;
+  const w=Math.max(c.measureText(t1).width,c.measureText(t2).width)+pd*2,h=Math.round(66*u);
+  c.fillStyle='rgba(255,255,255,.88)';recRR(c,pd,pd,w,h,10*u);c.fill();
+  c.fillStyle='#14263b';c.textBaseline='top';c.fillText(t1,pd*2,pd+8*u);
+  c.font=`${Math.round(17*u)}px system-ui,Arial,sans-serif`;c.fillText(t2,pd*2,pd+34*u);
+  const bw=w-pd*2;c.fillStyle='#d0d7e2';c.fillRect(pd*2,pd+h-10*u,bw,5*u);
+  c.fillStyle=S.color||'#1c7ed6';c.fillRect(pd*2,pd+h-10*u,bw*(sim.tot?sim.d/sim.tot:0),5*u);
+  c.restore();
+}
+function startRec(){
+  if(!sim.on)return;
+  if(!window.MediaRecorder||!HTMLCanvasElement.prototype.captureStream){toast('Browser tidak mendukung perekaman video. Gunakan Chrome/Edge terbaru.');return}
+  if(sim.mode==='imut'&&!CR.on){toast('Tunggu tampilan 3D selesai dimuat');return}
+  const s=recSrc();if(!s||!s.width){toast('Tampilan belum siap');return}
+  const sc=Math.min(1,1920/s.width);
+  REC.W=Math.max(2,Math.round(s.width*sc/2)*2);REC.H=Math.max(2,Math.round(s.height*sc/2)*2);
+  REC.cv=document.createElement('canvas');REC.cv.width=REC.W;REC.cv.height=REC.H;REC.cx=REC.cv.getContext('2d');
+  const ms=['video/mp4;codecs=avc1','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
+  REC.mime=ms.find(m=>MediaRecorder.isTypeSupported(m))||'';
+  let st;try{
+    st=REC.cv.captureStream(30);
+    REC.mr=new MediaRecorder(st,Object.assign({videoBitsPerSecond:8e6},REC.mime?{mimeType:REC.mime}:{}));
+  }catch(e){console.error(e);REC.mr=null;toast('Gagal memulai perekaman');return}
+  REC.ch=[];REC.t0=performance.now();
+  const mr=REC.mr;
+  mr.ondataavailable=e=>{if(e.data&&e.data.size)REC.ch.push(e.data)};
+  mr.onstop=()=>{
+    st.getTracks().forEach(t=>t.stop());
+    if(!REC.ch.length){toast('Video kosong, tidak ada yang diunduh');return}
+    const ext=(mr.mimeType||REC.mime).includes('mp4')?'mp4':'webm';
+    const blob=new Blob(REC.ch,{type:mr.mimeType||REC.mime||'video/webm'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+    a.download='simulasi-'+(String(S.event||'rute').trim().replace(/[^\w\-]+/g,'_')||'rute')+'.'+ext;
+    document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),20000);
+    REC.ch=[];toast('Video diunduh ('+ext.toUpperCase()+')');
+  };
+  mr.start(500);
+  $('#srec').innerHTML='&#9632; Berhenti & unduh';$('#srec').classList.add('rec');
+  sim.d=0;sim.play=true;$('#spl').innerHTML='&#10074;&#10074; Jeda';upd();
+  sim.last=performance.now();requestAnimationFrame(frame);
+  toast('Merekam... video otomatis diunduh saat rute selesai');
+}
+function stopRec(save){
+  const mr=REC.mr;if(!mr)return;
+  REC.mr=null;
+  if(!save)REC.ch=[];
+  try{if(mr.state!=='inactive')mr.stop()}catch(e){}
+  const b=$('#srec');if(b){b.innerHTML='&#9210; Rekam video';b.classList.remove('rec')}
+}
+$('#srec').addEventListener('click',()=>{REC.mr?stopRec(true):startRec()});
 $('#sx').addEventListener('click',closeSim);
 $('#spl').addEventListener('click',()=>{
   if(!sim.on)return;
@@ -1264,7 +1353,7 @@ function cuteTick(t){
   o.cam.position.set(o.tx+o.dist*cp*Math.sin(o.th),o.dist*Math.sin(o.pitch),o.tz-o.dist*cp*Math.cos(o.th));
   o.cam.lookAt(o.tx,0,o.tz);
   o.sun.position.set(o.tx+110,220,o.tz+80);o.sun.target.position.set(o.tx,0,o.tz);
-  o.rd.render(o.sc,o.cam);
+  o.rd.render(o.sc,o.cam);recDraw();
 }
 function cuteLoop(ts){if(!CR.on)return;CR.raf=requestAnimationFrame(cuteLoop);cuteTick(ts/1000)}
 function cuteStop(){
