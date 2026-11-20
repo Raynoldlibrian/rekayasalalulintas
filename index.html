@@ -164,8 +164,9 @@ button.dg{color:#b42318}
     <select id="ssp" title="Kecepatan simulasi"><option value="10">10x</option><option value="30" selected>30x</option><option value="60">60x</option><option value="120">120x</option></select>
     <input type="range" id="ssl" min="0" max="100" value="0">
     <select id="sca"><option value="semua">Seluruh rute</option><option value="ikut">Kamera ikut</option><option value="bebas">Kamera bebas</option></select>
-    <select id="sq" title="Kualitas tampilan gaya imut"><option value="n">Kualitas normal</option><option value="r">Ringan</option></select>
-    <select id="ssy"><option value="imut">Gaya imut (game)</option><option value="3d">Peta realistis</option><option value="sat">Satelit</option></select>
+    <select id="sq" title="Kualitas tampilan 3D"><option value="n">Kualitas normal</option><option value="r">Ringan</option></select>
+    <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;white-space:nowrap" title="Tampilkan atau sembunyikan pohon otomatis"><input type="checkbox" id="stree" checked style="width:auto"> Pohon</label>
+    <select id="ssy"><option value="maket">Maket Tata Kota 3D</option><option value="imut">Gaya imut (game)</option><option value="3d">Peta realistis</option><option value="sat">Satelit</option></select>
     <input type="time" id="sti" value="07:00" title="Jam berangkat"></div>
 </div>
 <div id="dlg"><div class="bx">
@@ -718,13 +719,14 @@ function bearAt(d){
 function plist(){
   $('#st3').innerHTML=sim.pe.length?'<div class="mut">Perkiraan pos dilewati</div>'+sim.pe.map(e=>`<div>P${e.i+1} ${esc(e.name)}: <b>${e.hit?clk(e.at):'di luar rute'}</b></div>`).join(''):'<div class="mut">Belum ada pos jaga.</div>';
 }
+const is3DScene=m=>m==='imut'||m==='maket';
 function upd(){
   const p=at(sim.d);
   $('#ssl').value=Math.round(sim.d);
   const nx=sim.pe.filter(e=>e.hit&&e.at>sim.d+30).sort((x,y)=>x.at-y.at)[0];
   $('#st2').innerHTML=`Jam <b>${clk(sim.d)}</b> &bull; ${(sim.d/1000).toFixed(2)} / ${(sim.tot/1000).toFixed(2)} km<div class="pbar"><i style="width:${sim.tot?(sim.d/sim.tot*100).toFixed(1):0}%"></i></div>`+(nx?`<div class="mut" style="margin-top:4px">Berikutnya: P${nx.i+1} ${esc(nx.name)} (${clk(nx.at)})</div>`:'');
   const on=e=>e.hit&&sim.d>=e.at-30&&sim.d<=e.at+60;
-  if(sim.mode==='imut'){cuteUpd(on);return}
+  if(is3DScene(sim.mode)){cuteUpd(on);return}
   const tb=bearAt(sim.d),dc=((tb-sim.cb+540)%360)-180;sim.cb=(sim.cb+dc*0.25+360)%360;
   SM.triggerRepaint();
   sim.pe.forEach(e=>{const el=sim.pm[e.i];if(el)el.classList.toggle('on',on(e))});
@@ -816,9 +818,9 @@ function simFit(du){const b=allBounds();if(!b||!SM)return;SM.fitBounds([[b.getWe
 async function openSim(){
   const C=[].concat(...legsArr());
   if(S.pts.length<2||C.length<2){toast('Buat rute dulu (minimal 2 titik)');return}
-  const mode=$('#ssy').value;
-  try{await(mode==='imut'?loadJs('https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js','THREE'):Promise.all([loadML(),loadJs('https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js','THREE')]))}catch(e){toast('Gagal memuat pustaka 3D. Periksa koneksi internet.');return}
-  $('#sim').classList.add('on');$('#sim').classList.toggle('cute',mode==='imut');
+  const mode=$('#ssy').value,is3d=is3DScene(mode);
+  try{await(is3d?loadJs('https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js','THREE'):Promise.all([loadML(),loadJs('https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js','THREE')]))}catch(e){toast('Gagal memuat pustaka 3D. Periksa koneksi internet.');return}
+  $('#sim').classList.add('on');$('#sim').classList.toggle('cute',is3d);
   sim.on=true;sim.mode=mode;
   sim.C=C;sim.cum=[0];
   for(let i=1;i<C.length;i++)sim.cum.push(sim.cum[i-1]+map.distance(C[i-1],C[i]));
@@ -828,14 +830,14 @@ async function openSim(){
   $('#spl').innerHTML='&#9654; Putar';$('#ssl').max=Math.max(1,Math.round(sim.tot));$('#ssl').value=0;
   plist();
   if(SM){SM.remove();SM=null}
-  if(mode==='imut'){cuteStart();return}
+  if(is3d){cuteStart();return}
   SM=new maplibregl.Map({container:'sm',style:STY[mode],center:[C[0][1],C[0][0]],zoom:17,pitch:62,maxPitch:80,canvasContextAttributes:{preserveDrawingBuffer:true}});SM.on('render',recDraw);
   SM.on('load',()=>{addSimLayers();addSimMarkers();sim.bear=sim.cb=bearAt(0);if($('#sca').value==='ikut')SM.jumpTo({center:[C[0][1],C[0][0]],bearing:sim.bear});else simFit(0);upd();cancelAnimationFrame(sim.craf);patwalFrame()});
 }
 function closeSim(){stopRec(true);sim.play=false;sim.on=false;cancelAnimationFrame(sim.craf);$('#sim').classList.remove('on');cuteStop();if(SM){SM.remove();SM=null}}
 /* ---------- rekam & unduh video animasi ---------- */
 const REC={wc:null,busy:false,save:true,im:{},mr:null,ch:[],cv:null,cx:null,W:0,H:0,mime:'',t0:0};
-function recSrc(){return sim.mode==='imut'?(CR.rd&&CR.rd.domElement):(SM&&SM.getCanvas())}
+function recSrc(){return is3DScene(sim.mode)?(CR.rd&&CR.rd.domElement):(SM&&SM.getCanvas())}
 function recRR(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath()}
 function recDraw(){
   try{recDraw0()}catch(e){if(!REC.err){REC.err=1;console.error('recDraw',e)}}
@@ -845,7 +847,7 @@ function recDraw0(){
   const s=recSrc();if(!s||!s.width)return;
   const c=REC.cx,W=REC.W,H=REC.H;
   c.drawImage(s,0,0,W,H);REC.nf=(REC.nf||0)+1;
-  if(sim.mode!=='imut'&&SM){
+  if(!is3DScene(sim.mode)&&SM){
     const k=W/s.clientWidth,br=SM.getBearing();
     sim.mk.forEach(m=>{
       const sp=m._sp;if(!sp)return;
@@ -931,7 +933,7 @@ async function startRec(){
 async function startRec0(){
   if(!sim.on)return;
   if(!window.MediaRecorder||!HTMLCanvasElement.prototype.captureStream){toast('Browser tidak mendukung perekaman video. Gunakan Chrome/Edge terbaru.');return}
-  if(sim.mode==='imut'&&!CR.on){toast('Tunggu tampilan 3D selesai dimuat');return}
+  if(is3DScene(sim.mode)&&!CR.on){toast('Tunggu tampilan 3D selesai dimuat');return}
   const s=recSrc();if(!s||!s.width){toast('Tampilan belum siap');return}
   const sc=Math.min(1,1920/s.width);
   REC.W=Math.max(2,Math.round(s.width*sc/2)*2);REC.H=Math.max(2,Math.round(s.height*sc/2)*2);
@@ -988,12 +990,13 @@ $('#spl').addEventListener('click',()=>{
 $('#srs').addEventListener('click',()=>{if(!sim.on)return;sim.play=false;sim.d=0;$('#spl').innerHTML='&#9654; Putar';upd()});
 $('#ssl').addEventListener('input',e=>{if(!sim.on)return;sim.d=+e.target.value;upd()});
 $('#sti').addEventListener('input',()=>{if(sim.on){plist();upd()}});
-$('#sca').addEventListener('change',()=>{if(sim.on&&sim.mode!=='imut'&&SM){if($('#sca').value==='semua')simFit();else if($('#sca').value==='ikut')upd()}});
-$('#sq').addEventListener('change',()=>{if(sim.on&&sim.mode==='imut'){closeSim();openSim()}});
+$('#sca').addEventListener('change',()=>{if(sim.on&&!is3DScene(sim.mode)&&SM){if($('#sca').value==='semua')simFit();else if($('#sca').value==='ikut')upd()}});
+$('#sq').addEventListener('change',()=>{if(sim.on&&is3DScene(sim.mode)){closeSim();openSim()}});
+$('#stree').addEventListener('change',e=>{if(CR.on){const v=e.target.checked;if(CR.fo)CR.fo.visible=v;if(CR.tr)CR.tr.visible=v}});
 $('#ssy').addEventListener('change',e=>{
   if(!sim.on)return;
   const nw=e.target.value;
-  if(sim.mode==='imut'||nw==='imut'){closeSim();openSim();return}
+  if(is3DScene(sim.mode)||is3DScene(nw)){closeSim();openSim();return}
   SM.setStyle(STY[nw],{diff:false});SM.once('style.load',addSimLayers);sim.mode=nw;
 });
 
@@ -1199,8 +1202,32 @@ function ovFit(){
   const o=CR,tv=Math.tan(o.cam.fov*Math.PI/360),th=tv*o.cam.aspect;
   return Math.max(160,1.3*Math.max(o.ov.hw/th,o.ov.hh*Math.sin(0.95)/tv));
 }
+const OV_CACHE=new Map();
+async function fetchMaketOSM(bd){
+  const pad=0.0032;
+  const s=(bd.getSouth()-pad).toFixed(5),n=(bd.getNorth()+pad).toFixed(5),w=(bd.getWest()-pad).toFixed(5),e=(bd.getEast()+pad).toFixed(5);
+  const key=`${s},${w},${n},${e}`;
+  if(OV_CACHE.has(key))return OV_CACHE.get(key);
+  const q=`[out:json][timeout:10];(way["highway"](${s},${w},${n},${e});way["building"](${s},${w},${n},${e});way["natural"="water"](${s},${w},${n},${e});way["waterway"](${s},${w},${n},${e});way["leisure"~"park|pitch|garden|stadium"](${s},${w},${n},${e});way["landuse"~"grass|recreation_ground|meadow"](${s},${w},${n},${e}););out geom;`;
+  for(const ep of ['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter']){
+    try{
+      const ctrl=new AbortController(),tm=setTimeout(()=>ctrl.abort(),7500);
+      const r=await fetch(ep,{method:'POST',body:'data='+encodeURIComponent(q),headers:{'Content-Type':'application/x-www-form-urlencoded'},signal:ctrl.signal});
+      clearTimeout(tm);
+      if(r.ok){const j=await r.json();if(j&&Array.isArray(j.elements)){OV_CACHE.set(key,j.elements);return j.elements}}
+    }catch(x){}
+  }
+  return [];
+}
+function distSeg2(x,z,ax,az,bx,bz){
+  const dx=bx-ax,dz=bz-az,l2=dx*dx+dz*dz;
+  if(!l2)return (x-ax)*(x-ax)+(z-az)*(z-az);
+  const t=Math.max(0,Math.min(1,((x-ax)*dx+(z-az)*dz)/l2));
+  const px=ax+t*dx,pz=az+t*dz;
+  return (x-px)*(x-px)+(z-pz)*(z-pz);
+}
 async function cuteBuild(host,bd,say){
-  const T=THREE,tok=CR.tok,lite=$('#sq').value==='r',yd=()=>new Promise(r=>setTimeout(r,0));
+  const T=THREE,tok=CR.tok,lite=$('#sq').value==='r',maket=sim.mode==='maket',yd=()=>new Promise(r=>setTimeout(r,0));
   const c0=bd.getCenter(),A0=c0.lat,L0=c0.lng,kx=111320*Math.cos(A0*Math.PI/180),ky=110540;
   const pr=(la,ln)=>[(ln-L0)*kx,-(la-A0)*ky];
   const W=host.clientWidth||800,H=host.clientHeight||600,sat=baseSat();
@@ -1209,33 +1236,184 @@ async function cuteBuild(host,bd,say){
   rd.shadowMap.enabled=!lite;rd.shadowMap.type=T.PCFSoftShadowMap;
   host.appendChild(rd.domElement);
   const stale=()=>{if(tok===CR.tok)return false;try{rd.dispose()}catch(e){}return true};
-  const sc=new T.Scene();sc.background=new T.Color('#d8efff');sc.fog=new T.Fog('#d8efff',380,1600);
+  const bgCol=maket?'#eef3f8':'#d8efff';
+  const sc=new T.Scene();sc.background=new T.Color(bgCol);sc.fog=new T.Fog(bgCol,maket?420:380,maket?1850:1600);
   const cam=new T.PerspectiveCamera(32,W/H,2,9000);
-  sc.add(new T.HemisphereLight('#ffffff','#b9e0a0',0.95));
-  const sun=new T.DirectionalLight('#fff1d6',0.85);sun.castShadow=!lite;sun.shadow.mapSize.set(1024,1024);sun.shadow.bias=-0.0008;
-  Object.assign(sun.shadow.camera,{left:-150,right:150,top:150,bottom:-150,near:20,far:1500});sun.shadow.camera.updateProjectionMatrix();
+  sc.add(new T.HemisphereLight('#ffffff',maket?'#cbd5e1':'#b9e0a0',maket?0.98:0.95));
+  const sun=new T.DirectionalLight(maket?'#fff8eb':'#fff1d6',maket?0.92:0.85);sun.castShadow=!lite;sun.shadow.mapSize.set(lite?1024:2048,lite?1024:2048);sun.shadow.bias=-0.0006;
+  Object.assign(sun.shadow.camera,{left:-180,right:180,top:180,bottom:-180,near:20,far:1600});sun.shadow.camera.updateProjectionMatrix();
   sc.add(sun,sun.target);
   const M=(col,o)=>new T.MeshLambertMaterial(Object.assign({color:col},o||{}));
   const world=new T.Group();sc.add(world);
   const mesh=(g,m,x,y,z)=>{const o=new T.Mesh(g,m);o.position.set(x,y,z);o.castShadow=true;o.receiveShadow=true;return o};
-  const gr=new T.Mesh(new T.PlaneGeometry(30000,30000).rotateX(-Math.PI/2),M('#e6eddc'));gr.receiveShadow=true;gr.position.y=-0.1;world.add(gr);
-  const flat=(P2,col,y)=>{try{const m=new T.Mesh(new T.ShapeGeometry(new T.Shape(P2.map(q=>new T.Vector2(q[0],-q[1])))).rotateX(-Math.PI/2),M(col,{side:T.DoubleSide,transparent:true,opacity:.8}));m.position.y=y;m.receiveShadow=true;world.add(m)}catch(e){}};
+  const gr=new T.Mesh(new T.PlaneGeometry(30000,30000).rotateX(-Math.PI/2),M(maket?'#e6ecf2':'#e6eddc'));gr.receiveShadow=true;gr.position.y=-0.1;world.add(gr);
+  const flat=(P2,col,y,op)=>{try{const m=new T.Mesh(new T.ShapeGeometry(new T.Shape(P2.map(q=>new T.Vector2(q[0],-q[1])))).rotateX(-Math.PI/2),M(col,{side:T.DoubleSide,transparent:op!=null,opacity:op!=null?op:1}));m.position.y=y;m.receiveShadow=true;world.add(m)}catch(e){}};
   const tri=(arr,col)=>{if(!arr.length)return;const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(arr,3));g.computeVertexNormals();const m=new T.Mesh(g,M(col,{side:T.DoubleSide}));m.receiveShadow=true;world.add(m)};
   const sc2=[],scal=o=>{sc2.push({o,b:o.scale.clone()});return o};
   const rp=sim.C.map(q=>pr(q[0],q[1]));
   sim.wx=rp.map(q=>q[0]);sim.wz=rp.map(q=>q[1]);
   {let j=1;while(j<rp.length-1&&Math.hypot(rp[j][0]-rp[0][0],rp[j][1]-rp[0][1])<6)j++;sim.b0=Math.atan2(rp[j][0]-rp[0][0],-(rp[j][1]-rp[0][1]))}
   CR.lb=sim.b0;
-  const fl=await cuteFloor(world,M,rd,bd,A0,L0,kx,ky,say,stale,sat);
-  if(!fl||stale())return;
-  say('Menanam pohon dan memasang objek...');await yd();if(stale())return;
-  // pohon: acak di kiri-kanan jalur, menghindari rute, air (dari gambar peta), parkir, dan objek lain
+  let fl=null;
+  if(!maket){
+    fl=await cuteFloor(world,M,rd,bd,A0,L0,kx,ky,say,stale,sat);
+    if(!fl||stale())return;
+  }
   let sd=12345;const rnd=()=>{sd=(sd*16807)%2147483647;return sd/2147483647};
   const sm=[];{let acc=0;rp.forEach((p,i)=>{if(i){acc+=Math.hypot(p[0]-rp[i-1][0],p[1]-rp[i-1][1]);if(acc<30)return;acc=0}sm.push(p)})}
   const parkW=S.park.map(a=>a.pts.map(p=>pr(p[0],p[1])));
   const keep=[...S.pos.map(p=>pr(p.lat,p.lng)),...S.sign.map(g=>pr(g.lat,g.lng)),...S.fas.map(f=>pr(f.lat,f.lng)),...S.tutup.flatMap(t=>t.pts.map(q=>pr(q[0],q[1])))];
+
+  // Mode Maket Tata Kota 3D: jaringan jalan putih & emas hangat, blok gedung 3D padat, sungai biru, taman hijau
+  const maketSegs=[],maketBlds=[];
+  const nearAnySeg=(x,z,minD)=>{
+    const d2=minD*minD;
+    for(let i=0;i<maketSegs.length;i++){const s=maketSegs[i];if(distSeg2(x,z,s[0],s[1],s[2],s[3])<d2)return true}
+    return false;
+  };
+  const nearAnyBld=(x,z,minD)=>{
+    const d2=minD*minD;
+    for(let i=0;i<maketBlds.length;i++){const b=maketBlds[i];if((x-b[0])*(x-b[0])+(z-b[1])*(z-b[1])<d2)return true}
+    return false;
+  };
+  const addPushSegs=(pts,rad)=>{for(let i=0;i<pts.length-1;i++)maketSegs.push([pts[i][0],pts[i][1],pts[i+1][0],pts[i+1][1],rad||8])};
+  addPushSegs(rp,11);
+  S.alt.forEach(a=>{if(a.pts.length>1)addPushSegs([].concat(...altLegs(a)).map(q=>pr(q[0],q[1])),9)});
+
+  if(maket){
+    say('Memuat tata kota 3D (jalan, sungai, taman & gedung)...');
+    const els=await fetchMaketOSM(bd);
+    if(stale())return;
+    const rdMajC=[],rdMaj=[],rdMinC=[],rdMin=[],rvArr=[];
+    const roadWays=[],waterPolys=[],parkPolys=[],osmBlds=[];
+    els.forEach(el=>{
+      if(!el.geometry||el.geometry.length<2)return;
+      const pts=el.geometry.map(g=>pr(g.lat,g.lon)),tg=el.tags||{};
+      if(tg.highway){
+        const h=tg.highway;
+        if(/^(footway|path|steps|cycleway|track|bridleway|corridor)$/.test(h))return;
+        const maj=/^(trunk|primary|secondary|tertiary|trunk_link|primary_link|secondary_link)$/.test(h);
+        const w=maj?10.5:(h==='service'?5.5:7.8);
+        if(maj){rib(pts,w+2.2,0.09,rdMajC);rib(pts,w,0.12,rdMaj)}
+        else{rib(pts,w+1.6,0.05,rdMinC);rib(pts,w,0.07,rdMin)}
+        addPushSegs(pts,w*0.65+4);
+        roadWays.push({pts,w,maj});
+      }else if(tg.building){
+        if(pts.length>=3)osmBlds.push({pts,tg});
+      }else if(tg.natural==='water'||tg.waterway){
+        const isClosed=pts.length>=4&&Math.hypot(pts[0][0]-pts[pts.length-1][0],pts[0][1]-pts[pts.length-1][1])<3;
+        if(isClosed||tg.natural==='water'||tg.waterway==='riverbank'){
+          flat(pts,'#74b9ff',0.02);waterPolys.push(pts);
+        }else{
+          const rw=tg.waterway==='river'?16:tg.waterway==='canal'?9:5;
+          rib(pts,rw,0.02,rvArr);addPushSegs(pts,rw*0.6+4);
+        }
+      }else if(tg.leisure||tg.landuse){
+        if(pts.length>=3){flat(pts,'#c3e88d',0.03);parkPolys.push(pts)}
+      }
+    });
+    // Jika offline atau Overpass kosong, buat kisi tata kota maquette otomatis di sekitar rute
+    if(!roadWays.length){
+      const allR=rp,xs2=allR.map(q=>q[0]),zs2=allR.map(q=>q[1]);
+      const xMin=Math.min(...xs2)-260,xMax=Math.max(...xs2)+260,zMin=Math.min(...zs2)-260,zMax=Math.max(...zs2)+260;
+      const step=75;
+      for(let x=Math.floor(xMin/step)*step;x<=xMax;x+=step){
+        const pts=[[x,zMin],[x,zMax]];rib(pts,8.8,0.05,rdMinC);rib(pts,7.2,0.07,rdMin);addPushSegs(pts,8);roadWays.push({pts,w:7.2,maj:false});
+      }
+      for(let z=Math.floor(zMin/step)*step;z<=zMax;z+=step){
+        const pts=[[xMin,z],[xMax,z]];rib(pts,8.8,0.05,rdMinC);rib(pts,7.2,0.07,rdMin);addPushSegs(pts,8);roadWays.push({pts,w:7.2,maj:false});
+      }
+    }
+    tri(rvArr,'#74b9ff');
+    tri(rdMinC,'#d5dde6');tri(rdMin,'#ffffff');
+    tri(rdMajC,'#e2c68e');tri(rdMaj,'#f6d896');
+
+    say('Menyusun blok maket bangunan 3D...');await yd();if(stale())return;
+    // Palet warna maket: slate abu-abu kebiruan bertingkat + aksen krem/pasir hangat seperti foto referensi
+    const BCOLS=['#9aa8b8','#adb9c7','#8796a8','#c2ccd6','#e5d2b5','#94a3b8'];
+    const bMats=BCOLS.map(c=>[M(c),M(c)]);
+    // 1. Render gedung OSM asli
+    osmBlds.slice(0,lite?350:900).forEach((b,idx)=>{
+      const cs=b.pts;
+      let cx=0,cz=0;cs.forEach(p=>{cx+=p[0];cz+=p[1]});cx/=cs.length;cz/=cs.length;
+      maketBlds.push([cx,cz]);
+      const lv=parseInt(b.tg['building:levels'])||0;
+      const h=lv?Math.min(42,Math.max(5,lv*3.6)):(6+((idx*17)%14));
+      try{
+        const sh=new T.Shape(cs.map(q=>new T.Vector2(q[0],-q[1])));
+        const geo=new T.ExtrudeGeometry(sh,{depth:h,bevelEnabled:false});
+        geo.rotateX(-Math.PI/2);
+        const m=new T.Mesh(geo,bMats[idx%bMats.length]);
+        m.position.y=0.08;m.castShadow=!lite;m.receiveShadow=true;world.add(m);
+      }catch(e){}
+    });
+    S.bld.forEach(b=>{const cs=bldCorners(b).map(q=>pr(q[0],q[1]));if(cs.length){let cx=0,cz=0;cs.forEach(p=>{cx+=p[0];cz+=p[1]});maketBlds.push([cx/cs.length,cz/cs.length])}});
+
+    // 2. Smart Procedural City-Block Generator: isi kavling kosong di sepanjang tepi jalan & rute agar padat seperti maket tata kota
+    const lotBoxes=[];
+    const canPlaceLot=(x,z,rad)=>{
+      for(let i=0;i<maketSegs.length;i++){
+        const s=maketSegs[i],md=s[4]+rad*0.72;
+        if(distSeg2(x,z,s[0],s[1],s[2],s[3])<md*md)return false;
+      }
+      if(nearAnyBld(x,z,rad*1.35))return false;
+      for(const p of keep)if(Math.hypot(x-p[0],z-p[1])<rad+7)return false;
+      for(const q of parkW)if(inPoly(x,z,q))return false;
+      for(const q of waterPolys)if(inPoly(x,z,q))return false;
+      for(const q of parkPolys)if(inPoly(x,z,q))return false;
+      return true;
+    };
+    const allWaysForLots=[{pts:rp,w:10,maj:true},...roadWays];
+    const maxLots=lite?420:1100;
+    for(let wi=0;wi<allWaysForLots.length&&lotBoxes.length<maxLots;wi++){
+      const rw=allWaysForLots[wi],pts=rw.pts;
+      let acc=0;
+      for(let i=0;i<pts.length-1&&lotBoxes.length<maxLots;i++){
+        const a=pts[i],b=pts[i+1],dx=b[0]-a[0],dz=b[1]-a[1],len=Math.hypot(dx,dz);
+        if(len<8)continue;
+        const ux=dx/len,uz=dz/len,nx=-uz,nz=ux,ang=Math.atan2(dx,-dz);
+        for(let d=10-acc;d<len-6&&lotBoxes.length<maxLots;d+=20+rnd()*10){
+          if(d<0)continue;
+          const px=a[0]+ux*d,pz=a[1]+uz*d;
+          for(const side of [-1,1]){
+            // Baris 1 (tepi jalan) dan Baris 2 (blok dalam)
+            for(let row=0;row<2;row++){
+              const bw=11+rnd()*13,bl=10+rnd()*11,bh=row===0?(6+rnd()*13):(5+rnd()*9);
+              const off=(rw.w*0.5)+(row===0?(5+bl*0.5):(20+bl*1.2))+rnd()*3;
+              const lx=px+nx*side*off,lz=pz+nz*side*off;
+              const rad=Math.hypot(bw,bl)*0.5;
+              if(!canPlaceLot(lx,lz,rad))continue;
+              maketBlds.push([lx,lz]);
+              const cIdx=rnd()<0.14?4:Math.floor(rnd()*BCOLS.length);
+              lotBoxes.push({x:lx,z:lz,w:bw,l:bl,h:bh,rot:-ang+(rnd()-.5)*0.04,c:BCOLS[cIdx]});
+            }
+          }
+        }
+        acc=(acc+len)%22;
+      }
+    }
+    if(lotBoxes.length){
+      const boxGeo=new T.BoxGeometry(1,1,1);
+      const im=new T.InstancedMesh(boxGeo,new T.MeshLambertMaterial({color:'#ffffff'}),lotBoxes.length);
+      const dm=new T.Object3D();
+      lotBoxes.forEach((b,i)=>{
+        dm.position.set(b.x,0.08+b.h*0.5,b.z);
+        dm.scale.set(b.w,b.h,b.l);
+        dm.rotation.set(0,b.rot,0);
+        dm.updateMatrix();
+        im.setMatrixAt(i,dm.matrix);
+        im.setColorAt(i,new T.Color(b.c));
+      });
+      im.instanceMatrix.needsUpdate=true;
+      if(im.instanceColor)im.instanceColor.needsUpdate=true;
+      im.castShadow=!lite;im.receiveShadow=true;
+      world.add(im);
+    }
+  }
+
+  say('Menanam pohon dan memasang objek...');await yd();if(stale())return;
   const isWater=(x,z)=>{
-    if(fl.sat)return false;
+    if(!fl||fl.sat)return false;
     const lng=L0+x/kx,lat=A0-z/ky,u=(tileX(lng,fl.z)-fl.tx0)*256,v=(tileY(lat,fl.z)-fl.ty0)*256;
     if(u<0||v<0||u>=fl.cv.width||v>=fl.cv.height)return false;
     try{const d=fl.c.getImageData(u|0,v|0,1,1).data;return d[2]-d[0]>25&&d[2]>190}catch(e){return false}
@@ -1244,6 +1422,7 @@ async function cuteBuild(host,bd,say){
     for(const p of sm)if(Math.hypot(x-p[0],z-p[1])<11)return false;
     for(const p of keep)if(Math.hypot(x-p[0],z-p[1])<9)return false;
     for(const q of parkW)if(inPoly(x,z,q))return false;
+    if(maket&&(nearAnySeg(x,z,9)||nearAnyBld(x,z,11)))return false;
     return !isWater(x,z);
   };
   // blok bangunan manual (S.bld)
@@ -1254,7 +1433,7 @@ async function cuteBuild(host,bd,say){
       const sh=new T.Shape(cs.map(q=>new T.Vector2(q[0],-q[1])));
       const geo=new T.ExtrudeGeometry(sh,{depth:h,bevelEnabled:false});
       geo.rotateX(-Math.PI/2);
-      const m=new T.Mesh(geo,[M('#fffaf4'),M('#e8d5c2')]);
+      const m=new T.Mesh(geo,maket?[M('#f3e3c9'),M('#dfcaa8')]:[M('#fffaf4'),M('#e8d5c2')]);
       m.position.y=0.15;m.castShadow=!lite;m.receiveShadow=true;world.add(m);
       if(b.name){
         const cx=cs.reduce((s,p)=>s+p[0],0)/cs.length,cz=cs.reduce((s,p)=>s+p[1],0)/cs.length;
@@ -1263,7 +1442,7 @@ async function cuteBuild(host,bd,say){
     }catch(e){}
   });
   // pohon manual (S.trees) berbentuk bola bulat, atau pohon otomatis jika belum ada pohon manual
-  const tps=[],TMAX=lite?90:200;
+  const tps=[],TMAX=maket?(lite?45:90):(lite?90:200);
   if(S.trees.length){
     S.trees.forEach(t=>{
       const q=pr(t.lat,t.lng),sc0=Math.max(0.5,(t.r||6)/5.5);
@@ -1272,24 +1451,27 @@ async function cuteBuild(host,bd,say){
       }else tps.push([q[0],q[1],sc0,0.2]);
     });
   }else{
-    for(let k=0;k<TMAX*5&&tps.length<TMAX;k++){
-      const b=sm[Math.floor(rnd()*sm.length)],a=rnd()*6.283,r=14+rnd()*55,x=b[0]+Math.cos(a)*r,z=b[1]+Math.sin(a)*r;
-      if(okTree(x,z))tps.push([x,z,0.8+rnd()*0.8,rnd()]);
+    for(let k=0;k<TMAX*6&&tps.length<TMAX;k++){
+      const b=sm[Math.floor(rnd()*sm.length)],a=rnd()*6.283,r=14+rnd()*65,x=b[0]+Math.cos(a)*r,z=b[1]+Math.sin(a)*r;
+      if(okTree(x,z))tps.push([x,z,0.75+rnd()*0.7,rnd()]);
     }
   }
+  let fo=null,tr=null;
   if(tps.length){
-    const fo=new T.InstancedMesh(new T.SphereGeometry(2.6,14,12),M('#ffffff'),tps.length),tr=new T.InstancedMesh(new T.CylinderGeometry(.35,.5,2.4,6),M('#a9744f'),tps.length);
+    fo=new T.InstancedMesh(new T.SphereGeometry(2.6,14,12),M('#ffffff'),tps.length);tr=new T.InstancedMesh(new T.CylinderGeometry(.35,.5,2.4,6),M('#a9744f'),tps.length);
     const d=new T.Object3D(),GC=['#7ccf6e','#6cc26a','#8fd97a','#5fb866'];
     tps.forEach((t,i)=>{
       d.position.set(t[0],2.4+t[2]*1.2,t[1]);d.scale.setScalar(t[2]);d.rotation.y=t[3]*6;d.updateMatrix();fo.setMatrixAt(i,d.matrix);fo.setColorAt(i,new T.Color(GC[i%4]));
       d.position.set(t[0],1.2*t[2],t[1]);d.rotation.y=0;d.updateMatrix();tr.setMatrixAt(i,d.matrix);
     });
+    const showT=!$('#stree')||$('#stree').checked;
+    fo.visible=showT;tr.visible=showT;
     fo.castShadow=!lite;tr.castShadow=!lite;world.add(fo,tr);
   }
-  // rute
+  // rute: di mode maket dibuat sedikit timbul seperti jalan layang/jalan utama emas atau warna rute
   const rc=[],rt=[],chv=[];
-  rib(rp,10,0.20,rc);rib(rp,7,0.24,rt);chev(rp,30,2.8,0.28,chv);
-  tri(rc,'#ffffff');tri(rt,S.color);tri(chv,'#ffffff');
+  rib(rp,10.5,0.22,rc);rib(rp,7.5,0.26,rt);chev(rp,30,2.8,0.30,chv);
+  tri(rc,maket?'#fff8e7':'#ffffff');tri(rt,S.color);tri(chv,'#ffffff');
   const st=S.pts.filter(p=>!p.via);
   st.forEach((p,i)=>{
     const q=pr(p.lat,p.lng),first=i===0,last=i===st.length-1&&i>0,col=first?'#14263b':last?'#16a34a':S.color,g=new T.Group();
@@ -1367,7 +1549,7 @@ async function cuteBuild(host,bd,say){
   const cf=CFG[S.prof]||CFG.foot,KC=['#ef4444','#f59e0b','#22c55e','#3b82f6','#a855f7','#ec4899','#14b8a6','#f97316'],figs=[],rows=lite?Math.min(cf.rows,6):cf.rows;
   for(let r=0;r<rows;r++)for(let c2=0;c2<cf.cols;c2++){const f=cf.mk(KC[r%KC.length],r*cf.cols+c2);world.add(f);figs.push({f,r,c:c2,bs:f.scale.x})}
   const clouds=[];
-  if(!lite)for(let i=0;i<9;i++){
+  if(!lite&&!maket)for(let i=0;i<9;i++){
     const g=new T.Group();
     [[0,0,0,9],[8,-1,2,7],[-8,-2,-1,6.5],[3,3,-3,6]].forEach(p=>{const m=new T.Mesh(new T.SphereGeometry(p[3],12,10),new T.MeshLambertMaterial({color:'#ffffff',emissive:'#ffffff',emissiveIntensity:.5}));m.position.set(p[0],p[1],p[2]);g.add(m)});
     g.position.set((rnd()-.5)*1400,110+rnd()*50,(rnd()-.5)*1400);g.scale.set(1.2+rnd(),0.6,1);world.add(g);clouds.push(g);
@@ -1378,7 +1560,7 @@ async function cuteBuild(host,bd,say){
   const xs=all.map(q=>q[0]),zs=all.map(q=>q[1]),bx0=Math.min(...xs),bx1=Math.max(...xs),bz0=Math.min(...zs),bz1=Math.max(...zs);
   const ov={tx:(bx0+bx1)/2,tz:(bz0+bz1)/2,hw:Math.max(60,(bx1-bx0)/2),hh:Math.max(60,(bz1-bz0)/2)};
   const l=host.querySelector('.ld');if(l)l.remove();
-  Object.assign(CR,{on:true,rd,sc,cam,sun,car,lampB,lampR,gB,gR,figs,clouds,pos,cf,sc2,ov,world,sat,A0,L0,kx,ky,tm:new Map(),tok0:tok,s:1,se:150,tt:0,th:Math.PI,pitch:0.95,dist:200,fd:130,fp:0.82,dyaw:0.55,tx:ov.tx,tz:ov.tz,cx:rp[0][0],cz:rp[0][1],cb:sim.b0,last:0,onf:null});
+  Object.assign(CR,{on:true,rd,sc,cam,sun,car,lampB,lampR,gB,gR,figs,clouds,pos,cf,sc2,ov,world,sat,A0,L0,kx,ky,fo,tr,maket,tm:new Map(),tok0:tok,s:1,se:150,tt:0,th:Math.PI,pitch:0.95,dist:200,fd:130,fp:0.82,dyaw:0.55,tx:ov.tx,tz:ov.tz,cx:rp[0][0],cz:rp[0][1],cb:sim.b0,last:0,onf:null});
   CR.dist=ovFit();
   const el=rd.domElement,ptr=new Map();let pd=0;
   const toFree=()=>{if($('#sca').value==='semua'){$('#sca').value='bebas'}};
@@ -1435,7 +1617,7 @@ function cuteTick(t){
   sim.pe.forEach(e=>{const p=o.pos[e.i];if(p)p.on=(o.onf&&o.onf(e))?1:0});
   o.pos.forEach(p=>{p.ring.material.opacity+=((p.on?0.55:0)-p.ring.material.opacity)*0.15;p.g.scale.setScalar(s*(1+(p.on?0.12*Math.sin(t*8):0)));p.roof.material.color.set(p.on?'#16a34a':'#14263b')});
   o.clouds.forEach(c=>{c.visible=o.dist<350;c.position.x+=dt*3;if(c.position.x>800)c.position.x=-800});
-  if(o.dist<380&&t-o.tt>0.25){o.tt=t;cuteTiles()}
+  if(!o.maket&&o.dist<380&&t-o.tt>0.25){o.tt=t;cuteTiles()}
   // kabut dan bayangan menyesuaikan jarak kamera
   o.sc.fog.near=Math.max(380,o.dist*1.3);o.sc.fog.far=Math.max(1600,o.dist*4);
   const se=Math.min(900,Math.max(150,o.dist*0.8));
