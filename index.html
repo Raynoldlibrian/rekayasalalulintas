@@ -1223,8 +1223,8 @@ async function cuteFloor(world,M,rd,bb,A0,L0,kx,ky,say,stale,sat,topo){
   const tex=new T.CanvasTexture(cv);tex.colorSpace=T.SRGBColorSpace;
   tex.anisotropy=(rd.capabilities&&rd.capabilities.getMaxAnisotropy&&rd.capabilities.getMaxAnisotropy())||4;
   const lw=lngOf(tx0,z),le=lngOf(tx1+1,z),lt=latOf(ty0,z),lb=latOf(ty1+1,z);
-  const m=new T.Mesh(new T.PlaneGeometry((le-lw)*kx,(lt-lb)*ky).rotateX(-Math.PI/2),M('#ffffff',{map:tex}));
-  m.position.set(((lw+le)/2-L0)*kx,0,-((lt+lb)/2-A0)*ky);m.receiveShadow=true;world.add(m);
+  const m=new T.Mesh(new T.PlaneGeometry((le-lw)*kx,(lt-lb)*ky).rotateX(-Math.PI/2),M('#ffffff',{map:tex,polygonOffset:true,polygonOffsetFactor:2,polygonOffsetUnits:2}));
+  m.position.set(((lw+le)/2-L0)*kx,0,-((lt+lb)/2-A0)*ky);m.renderOrder=0;m.receiveShadow=true;world.add(m);
   return{cv,c,z,tx0,ty0,sat,topo};
 }
 /* petak detail (z18) di sekitar target kamera saat didekati */
@@ -1241,8 +1241,8 @@ function cuteTiles(){
       softTile(c,im,0,0,256,256,o.topo);tintAll(c,256,256,o.topo);
       const tex=new T.CanvasTexture(cv);tex.colorSpace=T.SRGBColorSpace;tex.anisotropy=8;
       const lw=lngOf(x,z),le=lngOf(x+1,z),lt=latOf(y,z),lb=latOf(y+1,z);
-      const m=new T.Mesh(new T.PlaneGeometry((le-lw)*o.kx,(lt-lb)*o.ky).rotateX(-Math.PI/2),new T.MeshLambertMaterial({color:'#ffffff',map:tex}));
-      m.position.set(((lw+le)/2-o.L0)*o.kx,0.03,-((lt+lb)/2-o.A0)*o.ky);m.receiveShadow=true;o.world.add(m);o.tm.set(k,m);
+      const m=new T.Mesh(new T.PlaneGeometry((le-lw)*o.kx,(lt-lb)*o.ky).rotateX(-Math.PI/2),new T.MeshLambertMaterial({color:'#ffffff',map:tex,polygonOffset:true,polygonOffsetFactor:1,polygonOffsetUnits:1}));
+      m.position.set(((lw+le)/2-o.L0)*o.kx,0.06,-((lt+lb)/2-o.A0)*o.ky);m.renderOrder=1;m.receiveShadow=true;o.world.add(m);o.tm.set(k,m);
     });
   }
   if(o.tm.size>40)for(const[k,m]of[...o.tm]){
@@ -1421,7 +1421,7 @@ async function cuteBuild(host,bd,say){
   const stale=()=>{if(tok===CR.tok)return false;try{rd.dispose()}catch(e){}return true};
   const bgCol=maket?'#eef3f8':'#bae6fd';
   const sc=new T.Scene();sc.background=new T.Color(bgCol);sc.fog=new T.Fog(maket?'#eef3f8':'#dbeafe',maket?420:450,maket?1850:2200);
-  const cam=new T.PerspectiveCamera(32,W/H,2,9000);
+  const cam=new T.PerspectiveCamera(32,W/H,4,7500);
   sc.add(new T.HemisphereLight('#ffffff',maket?'#cbd5e1':'#d9f99d',maket?0.98:0.95));
   const sun=new T.DirectionalLight(maket?'#fff8eb':'#fffdf7',maket?0.92:0.95);sun.castShadow=!lite;sun.shadow.mapSize.set(lite?1024:2048,lite?1024:2048);sun.shadow.bias=-0.0006;
   Object.assign(sun.shadow.camera,{left:-180,right:180,top:180,bottom:-180,near:20,far:1600});sun.shadow.camera.updateProjectionMatrix();
@@ -1430,10 +1430,10 @@ async function cuteBuild(host,bd,say){
   const world=new T.Group();sc.add(world);
   const mesh=(g,m,x,y,z)=>{const o=new T.Mesh(g,m);o.position.set(x,y,z);o.castShadow=true;o.receiveShadow=true;return o};
   const grTex=makeGroundTex(maket);
-  const gr=new T.Mesh(new T.PlaneGeometry(30000,30000).rotateX(-Math.PI/2),M('#ffffff',{map:grTex}));gr.receiveShadow=true;gr.position.y=-0.1;world.add(gr);
-  const flat=(P2,col,y,op)=>{try{const m=new T.Mesh(new T.ShapeGeometry(new T.Shape(P2.map(q=>new T.Vector2(q[0],-q[1])))).rotateX(-Math.PI/2),M(col,{side:T.DoubleSide,transparent:op!=null,opacity:op!=null?op:1}));m.position.y=y;m.receiveShadow=true;world.add(m)}catch(e){}};
-  const extFlat=(P2,col,y,d,op)=>{try{const g=new T.ExtrudeGeometry(new T.Shape(P2.map(q=>new T.Vector2(q[0],-q[1]))),{depth:d||0.12,bevelEnabled:false});g.rotateX(-Math.PI/2);const m=new T.Mesh(g,M(col,{transparent:op!=null,opacity:op!=null?op:1}));m.position.y=y;m.receiveShadow=true;world.add(m)}catch(e){}};
-  const tri=(arr,col)=>{if(!arr.length)return;const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(arr,3));g.computeVertexNormals();const m=new T.Mesh(g,M(col,{side:T.DoubleSide}));m.receiveShadow=true;world.add(m)};
+  const gr=new T.Mesh(new T.PlaneGeometry(30000,30000).rotateX(-Math.PI/2),M('#ffffff',{map:grTex,polygonOffset:true,polygonOffsetFactor:6,polygonOffsetUnits:6}));gr.receiveShadow=true;gr.position.y=maket?-0.15:-2.2;gr.renderOrder=-2;world.add(gr);
+  const flat=(P2,col,y,op,ro)=>{try{const m=new T.Mesh(new T.ShapeGeometry(new T.Shape(P2.map(q=>new T.Vector2(q[0],-q[1])))).rotateX(-Math.PI/2),M(col,{side:T.DoubleSide,transparent:op!=null,opacity:op!=null?op:1,depthWrite:op==null,polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1}));m.position.y=y;if(ro!=null)m.renderOrder=ro;m.receiveShadow=true;world.add(m)}catch(e){}};
+  const extFlat=(P2,col,y,d,op,ro)=>{try{const g=new T.ExtrudeGeometry(new T.Shape(P2.map(q=>new T.Vector2(q[0],-q[1]))),{depth:d||0.18,bevelEnabled:false});g.rotateX(-Math.PI/2);const m=new T.Mesh(g,M(col,{transparent:op!=null,opacity:op!=null?op:1,depthWrite:op==null,polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1}));m.position.y=y;if(ro!=null)m.renderOrder=ro;m.receiveShadow=true;world.add(m)}catch(e){}};
+  const tri=(arr,col,ro)=>{if(!arr.length)return;const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(arr,3));g.computeVertexNormals();const m=new T.Mesh(g,M(col,{side:T.DoubleSide,polygonOffset:true,polygonOffsetFactor:-(ro||2),polygonOffsetUnits:-(ro||2)}));if(ro!=null)m.renderOrder=ro;m.receiveShadow=true;world.add(m)};
   const sc2=[],scal=o=>{sc2.push({o,b:o.scale.clone()});return o};
   const rp=sim.C.map(q=>pr(q[0],q[1]));
   sim.wx=rp.map(q=>q[0]);sim.wz=rp.map(q=>q[1]);
@@ -1476,34 +1476,58 @@ async function cuteBuild(host,bd,say){
       const pts=el.geometry.map(g=>pr(g.lat,g.lon)),tg=el.tags||{};
       if(tg.highway){
         const h=tg.highway;
-        if(!/^(footway|path|steps|cycleway|track|bridleway|corridor)$/.test(h))addPushSegs(pts,7.5);
+        if(!/^(footway|path|steps|cycleway|track|bridleway|corridor)$/.test(h))addPushSegs(pts,9.5);
       }else if(tg.leisure||tg.landuse){
         if(pts.length>=3){
-          extFlat(pts,'#4ade80',0.04,0.08,sat?0.24:0.32);
+          extFlat(pts,'#4ade80',0.20,0.14,sat?0.26:0.35,2);
           parkPolys.push(pts);
         }
       }else if(tg.natural==='water'||tg.waterway){
         const isClosed=pts.length>=4&&Math.hypot(pts[0][0]-pts[pts.length-1][0],pts[0][1]-pts[pts.length-1][1])<3;
         if(isClosed||tg.natural==='water'||tg.waterway==='riverbank'){
-          extFlat(pts,'#38bdf8',0.045,0.06,0.52);waterPolys.push(pts);
+          extFlat(pts,'#38bdf8',0.22,0.12,0.52,2);waterPolys.push(pts);
         }
       }else if(tg.building&&pts.length>=3){
         osmBldsTile.push({pts,tg});
+        let cx=0,cz=0;pts.forEach(p=>{cx+=p[0];cz+=p[1]});
+        maketBlds.push([cx/pts.length,cz/pts.length]);
       }
     });
+    // Jika di area rute belum banyak poligon taman di OSM, buat kantong-kantong open space hijau di sela-sela jaringan jalan (tidak menutupi jalan/gedung/parkir)
+    if(parkPolys.length<5&&sm.length>2){
+      for(let gi=0;gi<sm.length;gi+=2){
+        const p0=sm[gi],p1=sm[Math.min(sm.length-1,gi+1)]||sm[Math.max(0,gi-1)];
+        const dx=p1[0]-p0[0],dz=p1[1]-p0[1],l=Math.hypot(dx,dz)||1,nx=-dz/l,nz=dx/l,ang=Math.atan2(dx,-dz);
+        const cA=Math.cos(ang),sA=Math.sin(ang);
+        for(const side of [-1,1]){
+          if(parkPolys.length>=16)break;
+          const off=42+(gi*11%26),cx=p0[0]+nx*side*off,cz=p0[1]+nz*side*off;
+          const hw=20+(gi*7%14),hh=16+(gi*5%12),rad=Math.hypot(hw,hh);
+          if(nearAnySeg(cx,cz,rad+8)||nearAnyBld(cx,cz,rad+8))continue;
+          let hit=false;
+          for(const kp of keep)if(Math.hypot(cx-kp[0],cz-kp[1])<rad+12){hit=true;break}
+          for(const pk of parkW)if(inPoly(cx,cz,pk)){hit=true;break}
+          for(const op of parkPolys){let ox=0,oz=0;op.forEach(q=>{ox+=q[0];oz+=q[1]});if(Math.hypot(cx-ox/op.length,cz-oz/op.length)<rad*1.5){hit=true;break}}
+          if(hit)continue;
+          const poly=[[-hw,-hh],[hw,-hh],[hw,hh],[-hw,hh]].map(v=>[cx+v[0]*cA-v[1]*sA,cz+v[0]*sA+v[1]*cA]);
+          if(poly.some(v=>nearAnySeg(v[0],v[1],10)))continue;
+          extFlat(poly,'#4ade80',0.20,0.14,sat?0.24:0.32,2);
+          parkPolys.push(poly);
+        }
+      }
+    }
     if(topo&&osmBldsTile.length){
       const PBCOLS=['#f8fafc','#fef3c7','#e0f2fe','#fce7f3','#dcfce7','#f1f5f9'];
       const pbMats=PBCOLS.map(c=>[M(c,{transparent:true,opacity:0.9}),M(c,{transparent:true,opacity:0.9})]);
       osmBldsTile.slice(0,lite?250:650).forEach((b,idx)=>{
-        const cs=b.pts;let cx=0,cz=0;cs.forEach(p=>{cx+=p[0];cz+=p[1]});cx/=cs.length;cz/=cs.length;
-        maketBlds.push([cx,cz]);
+        const cs=b.pts;
         const lv=parseInt(b.tg['building:levels'])||0,h=lv?Math.min(38,Math.max(4.5,lv*3.5)):(5+((idx*13)%12));
         try{
           const sh=new T.Shape(cs.map(q=>new T.Vector2(q[0],-q[1])));
           const geo=new T.ExtrudeGeometry(sh,{depth:h,bevelEnabled:true,bevelThickness:0.2,bevelSize:0.16,bevelSegments:1});
           geo.rotateX(-Math.PI/2);
           const m=new T.Mesh(geo,pbMats[idx%pbMats.length]);
-          m.position.y=0.06;m.castShadow=!lite;m.receiveShadow=true;world.add(m);
+          m.position.y=0.25;m.castShadow=!lite;m.receiveShadow=true;world.add(m);
         }catch(e){}
       });
     }
@@ -1716,20 +1740,20 @@ async function cuteBuild(host,bd,say){
     fo.visible=showT;fo2.visible=showT;tr.visible=showT;
     fo.castShadow=!lite;fo2.castShadow=!lite;tr.castShadow=!lite;world.add(fo,fo2,tr);
   }
-  // rute: di mode maket dibuat sedikit timbul seperti jalan layang/jalan utama emas atau warna rute
+  // rute: dibuat sedikit lebih tinggi + polygonOffset agar tidak pernah tenggelam/terpotong di sudut kamera mana pun
   const rc=[],rt=[],chv=[];
-  rib(rp,10.5,0.22,rc);rib(rp,7.5,0.26,rt);chev(rp,30,2.8,0.30,chv);
-  tri(rc,maket?'#fff8e7':'#ffffff');tri(rt,S.color);tri(chv,'#ffffff');
+  rib(rp,10.5,0.48,rc);rib(rp,7.5,0.56,rt);chev(rp,30,2.8,0.64,chv);
+  tri(rc,maket?'#fff8e7':'#ffffff',4);tri(rt,S.color,5);tri(chv,'#ffffff',6);
   const st=S.pts.filter(p=>!p.via);
   st.forEach((p,i)=>{
     const q=pr(p.lat,p.lng),first=i===0,last=i===st.length-1&&i>0,col=first?'#14263b':last?'#16a34a':S.color,g=new T.Group();
-    g.position.set(q[0],0,q[1]);
+    g.position.set(q[0],0.45,q[1]);
     g.add(mesh(new T.CylinderGeometry(2.2,2.2,0.5,20),M(col),0,0.5,0));
     const sp=lbl(first?'START':last?'FINISH':String(i+1),col,'#ffffff',first||last?15:9,first||last?7.5:4.5);sp.position.set(0,first||last?9:6.5,0);g.add(sp);
     world.add(scal(g));
   });
   const pos=S.pos.map((p,i)=>{
-    const q=pr(p.lat,p.lng),g=new T.Group();g.position.set(q[0],0,q[1]);
+    const q=pr(p.lat,p.lng),g=new T.Group();g.position.set(q[0],0.2,q[1]);
     const ring=new T.Mesh(new T.CircleGeometry(5,28).rotateX(-Math.PI/2),new T.MeshBasicMaterial({color:'#fde047',transparent:true,opacity:0}));ring.position.y=0.36;g.add(ring);
     const roof=mesh(new T.ConeGeometry(3.4,2,4),M('#14263b'),0,3.8,0);roof.rotation.y=Math.PI/4;
     g.add(mesh(new T.BoxGeometry(3.6,2.8,3.6),M('#ffffff'),0,1.4,0),roof);
@@ -1739,26 +1763,26 @@ async function cuteBuild(host,bd,say){
   const CC=['#ef4444','#3b82f6','#f59e0b','#22c55e','#a855f7','#ec4899','#14b8a6','#64748b'];
   S.park.forEach((a,i)=>{
     const q=parkW[i];
-    flat(q,'#9cc9f2',0.12);
+    flat(q,'#9cc9f2',0.32,null,3);
     let best=0,ang=0;
     q.forEach((p,k)=>{const n2=q[(k+1)%q.length],l=Math.hypot(n2[0]-p[0],n2[1]-p[1]);if(l>best){best=l;ang=Math.atan2(n2[1]-p[1],n2[0]-p[0])}});
     const cA=Math.cos(ang),sA=Math.sin(ang),R2=q.map(p=>[p[0]*cA+p[1]*sA,-p[0]*sA+p[1]*cA]),xs=R2.map(p=>p[0]),zs=R2.map(p=>p[1]),cap=lite?25:60;
     let n3=0;
     for(let x=Math.min(...xs)+2.2;x<Math.max(...xs)-2.2&&n3<cap;x+=3.6)for(let z=Math.min(...zs)+3.4;z<Math.max(...zs)-3.4&&n3<cap;z+=6.6){
       if(!inPoly(x,z,R2))continue;
-      const car=makeCar(CC[(n3*7+i)%CC.length],1);car.position.set(x*cA-z*sA,0.2,x*sA+z*cA);car.rotation.y=-ang;world.add(car);n3++;
+      const car=makeCar(CC[(n3*7+i)%CC.length],1);car.position.set(x*cA-z*sA,0.36,x*sA+z*cA);car.rotation.y=-ang;world.add(car);n3++;
     }
     const sp=lbl(a.name,'#1c7ed6','#ffffff',12,6);sp.position.set(q.reduce((s2,p)=>s2+p[0],0)/q.length,8,q.reduce((s2,p)=>s2+p[1],0)/q.length);world.add(scal(sp));
   });
   S.sign.forEach(g0=>{
-    const q=pr(g0.lat,g0.lng),g=new T.Group();g.position.set(q[0],0,q[1]);
+    const q=pr(g0.lat,g0.lng),g=new T.Group();g.position.set(q[0],0.2,q[1]);
     g.add(mesh(new T.CylinderGeometry(.18,.18,6,8),M('#9aa5b1'),0,3,0));
     const cv=document.createElement('canvas');cv.width=cv.height=128;cv.getContext('2d').drawImage(sImg(g0.type),0,0,128,128);
     const sp=new T.Sprite(new T.SpriteMaterial({map:new T.CanvasTexture(cv),transparent:true}));sp.scale.set(6,6,1);sp.position.set(0,8,0);g.add(sp);
     world.add(scal(g));
   });
   S.fas.forEach(f0=>{
-    const q=pr(f0.lat,f0.lng),o=FAS[f0.type]||FAS.medis,g=new T.Group();g.position.set(q[0],0,q[1]);
+    const q=pr(f0.lat,f0.lng),o=FAS[f0.type]||FAS.medis,g=new T.Group();g.position.set(q[0],0.2,q[1]);
     g.add(mesh(new T.CylinderGeometry(2.6,2.8,0.6,18),M(o.c),0,0.3,0));
     const cv=document.createElement('canvas');cv.width=cv.height=128;cv.getContext('2d').drawImage(fImg(f0.type),0,0,128,128);
     const sp=new T.Sprite(new T.SpriteMaterial({map:new T.CanvasTexture(cv),transparent:true}));sp.scale.set(6.5,6.5,1);sp.position.set(0,7,0);g.add(sp);
@@ -1768,10 +1792,10 @@ async function cuteBuild(host,bd,say){
   S.tutup.forEach(t=>{
     if(!t.pts.length)return;
     const cs=t.pts.map(q=>pr(q[0],q[1]));
-    if(cs.length>1){const c1=[],c2=[];rib(cs,7.5,0.32,c1);rib(cs,5.2,0.36,c2);tri(c1,'#fef08a');tri(c2,'#dc2626')}
+    if(cs.length>1){const c1=[],c2=[];rib(cs,7.5,0.68,c1);rib(cs,5.2,0.74,c2);tri(c1,'#fef08a',7);tri(c2,'#dc2626',8)}
     cs.forEach((q,i)=>{
       if(i!==0&&i!==cs.length-1)return;
-      const g=new T.Group();g.position.set(q[0],0,q[1]);
+      const g=new T.Group();g.position.set(q[0],0.5,q[1]);
       g.add(mesh(new T.BoxGeometry(5.5,1.2,0.9),M('#dc2626'),0,1.6,0),mesh(new T.BoxGeometry(5.6,0.4,0.95),M('#fef08a'),0,1.6,0));
       world.add(scal(g));
     });
@@ -1779,11 +1803,11 @@ async function cuteBuild(host,bd,say){
   S.alt.forEach(a=>{
     if(a.pts.length<2)return;
     const cs=[].concat(...altLegs(a)).map(q=>pr(q[0],q[1])),col=a.color||'#7c3aed',c1=[],c2=[],c3=[];
-    rib(cs,6.4,0.30,c1);rib(cs,4.4,0.34,c2);chev(cs,24,2,0.38,c3);
-    tri(c1,'#ffffff');tri(c2,col);tri(c3,'#ffffff');
+    rib(cs,6.4,0.52,c1);rib(cs,4.4,0.60,c2);chev(cs,24,2,0.68,c3);
+    tri(c1,'#ffffff',4);tri(c2,col,5);tri(c3,'#ffffff',6);
     const n=cs.length,e=cs[n-1],pv=cs[Math.max(0,n-6)],b=Math.atan2(e[0]-pv[0],-(e[1]-pv[1]));
     const ag=new T.ShapeGeometry(new T.Shape([[-1.5,0],[-1.5,8],[-4.5,8],[0,16],[4.5,8],[1.5,8],[1.5,0]].map(p=>new T.Vector2(p[0],p[1])))).rotateX(-Math.PI/2);
-    const am=new T.Mesh(ag,M(col,{side:T.DoubleSide}));am.position.set(e[0]-Math.sin(b)*14,0.42,e[1]+Math.cos(b)*14);am.rotation.y=-b;world.add(am);
+    const am=new T.Mesh(ag,M(col,{side:T.DoubleSide,polygonOffset:true,polygonOffsetFactor:-6,polygonOffsetUnits:-6}));am.position.set(e[0]-Math.sin(b)*14,0.72,e[1]+Math.cos(b)*14);am.rotation.y=-b;am.renderOrder=6;world.add(am);
   });
   const car=makeCar('#ffffff',1.5);
   const addc=(geo,c,x,y,z)=>{const m=new T.Mesh(geo,new T.MeshBasicMaterial({color:c}));m.position.set(x,y,z);car.add(m);return m};
@@ -1851,14 +1875,14 @@ function cuteTick(t){
   }
   // ukuran objek ikut membesar saat kamera jauh agar tetap terlihat
   const s=Math.max(1,Math.min(3.5,o.dist/260));o.s=s;
-  o.car.position.set(pt[0],0.2,pt[1]);o.car.rotation.y=-b;o.car.scale.setScalar(1.5*s);
+  o.car.position.set(pt[0],0.62,pt[1]);o.car.rotation.y=-b;o.car.scale.setScalar(1.5*s);
   const bl=Math.floor(t*3)%2===0;
   o.lampB.material.color.set(bl?'#93c5fd':'#1e3a8a');o.lampR.material.color.set(bl?'#7f1d1d':'#fca5a5');
   o.gB.material.opacity=bl?1:0.05;o.gR.material.opacity=bl?0.05:1;
   o.figs.forEach(f=>{
     const dd=d-(18+f.r*o.cf.gap)*s,q=wPt(dd),bb=wBr(dd),lat=(f.c-(o.cf.cols-1)/2)*o.cf.lat*s;
     f.f.position.x=q[0]+Math.cos(bb)*lat;f.f.position.z=q[1]+Math.sin(bb)*lat;f.f.rotation.y=-bb;f.f.scale.setScalar(f.bs*s);
-    f.f.position.y=Math.abs(Math.sin(t*9+f.r*.7+f.c))*o.cf.bob*s;
+    f.f.position.y=0.58+Math.abs(Math.sin(t*9+f.r*.7+f.c))*o.cf.bob*s;
   });
   wBr(d);
   o.sc2.forEach(x=>x.o.scale.copy(x.b).multiplyScalar(s));
