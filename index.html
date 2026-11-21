@@ -1468,15 +1468,27 @@ async function cuteBuild(host,bd,say){
   say('Memuat open space hijau, sungai & gedung 3D...');
   const els=await fetchMaketOSM(bd);
   if(stale())return;
+  const isWater=(x,z)=>{
+    for(const q of waterPolys)if(inPoly(x,z,q))return true;
+    if(!fl||fl.sat)return false;
+    const lng=L0+x/kx,lat=A0-z/ky,u=(tileX(lng,fl.z)-fl.tx0)*256,v=(tileY(lat,fl.z)-fl.ty0)*256;
+    if(u<0||v<0||u>=fl.cv.width||v>=fl.cv.height)return false;
+    try{const d=fl.c.getImageData(u|0,v|0,1,1).data;return d[2]-d[0]>18&&d[2]-d[1]>10&&d[2]>165}catch(e){return false}
+  };
   if(!maket){
     // Di mode Gaya Imut & Peta Topo 3D: tampilkan karpet hijau open space (#4ade80) semi-transparan di atas peta seperti JejakLari
-    const osmBldsTile=[];
+    const osmBldsTile=[],roadWaysTile=[];
     els.forEach(el=>{
       if(!el.geometry||el.geometry.length<2)return;
       const pts=el.geometry.map(g=>pr(g.lat,g.lon)),tg=el.tags||{};
       if(tg.highway){
         const h=tg.highway;
-        if(!/^(footway|path|steps|cycleway|track|bridleway|corridor)$/.test(h))addPushSegs(pts,9.5);
+        if(!/^(footway|path|steps|cycleway|track|bridleway|corridor)$/.test(h)){
+          const maj=/^(trunk|primary|secondary|tertiary|trunk_link|primary_link|secondary_link)$/.test(h);
+          const w=maj?11:(h==='service'?6:8.5);
+          addPushSegs(pts,w*0.65+3.5);
+          roadWaysTile.push({pts,w,maj});
+        }
       }else if(tg.leisure||tg.landuse){
         if(pts.length>=3){
           extFlat(pts,'#4ade80',0.20,0.14,sat?0.26:0.35,2);
@@ -1486,6 +1498,9 @@ async function cuteBuild(host,bd,say){
         const isClosed=pts.length>=4&&Math.hypot(pts[0][0]-pts[pts.length-1][0],pts[0][1]-pts[pts.length-1][1])<3;
         if(isClosed||tg.natural==='water'||tg.waterway==='riverbank'){
           extFlat(pts,'#38bdf8',0.22,0.12,0.52,2);waterPolys.push(pts);
+        }else{
+          const rw=tg.waterway==='river'?28:tg.waterway==='canal'?12:6;
+          addPushSegs(pts,rw*0.65+6);
         }
       }else if(tg.building&&pts.length>=3){
         osmBldsTile.push({pts,tg});
@@ -1493,32 +1508,31 @@ async function cuteBuild(host,bd,say){
         maketBlds.push([cx/pts.length,cz/pts.length]);
       }
     });
-    // Jika di area rute belum banyak poligon taman di OSM, buat kantong-kantong open space hijau di sela-sela jaringan jalan (tidak menutupi jalan/gedung/parkir)
-    if(parkPolys.length<5&&sm.length>2){
-      for(let gi=0;gi<sm.length;gi+=2){
+    // Hanya buat kantong open space tambahan jika di area rute SAMA SEKALI belum ada taman OSM (parkPolys.length === 0) dan pastikan tidak di atas air/sungai
+    if(parkPolys.length===0&&sm.length>2){
+      for(let gi=0;gi<sm.length;gi+=3){
         const p0=sm[gi],p1=sm[Math.min(sm.length-1,gi+1)]||sm[Math.max(0,gi-1)];
         const dx=p1[0]-p0[0],dz=p1[1]-p0[1],l=Math.hypot(dx,dz)||1,nx=-dz/l,nz=dx/l,ang=Math.atan2(dx,-dz);
         const cA=Math.cos(ang),sA=Math.sin(ang);
         for(const side of [-1,1]){
-          if(parkPolys.length>=16)break;
-          const off=42+(gi*11%26),cx=p0[0]+nx*side*off,cz=p0[1]+nz*side*off;
-          const hw=20+(gi*7%14),hh=16+(gi*5%12),rad=Math.hypot(hw,hh);
-          if(nearAnySeg(cx,cz,rad+8)||nearAnyBld(cx,cz,rad+8))continue;
+          if(parkPolys.length>=8)break;
+          const off=46+(gi*11%22),cx=p0[0]+nx*side*off,cz=p0[1]+nz*side*off;
+          const hw=24+(gi*7%14),hh=18+(gi*5%12),rad=Math.hypot(hw,hh);
+          if(isWater(cx,cz)||nearAnySeg(cx,cz,rad+10)||nearAnyBld(cx,cz,rad+8))continue;
           let hit=false;
           for(const kp of keep)if(Math.hypot(cx-kp[0],cz-kp[1])<rad+12){hit=true;break}
           for(const pk of parkW)if(inPoly(cx,cz,pk)){hit=true;break}
-          for(const op of parkPolys){let ox=0,oz=0;op.forEach(q=>{ox+=q[0];oz+=q[1]});if(Math.hypot(cx-ox/op.length,cz-oz/op.length)<rad*1.5){hit=true;break}}
           if(hit)continue;
           const poly=[[-hw,-hh],[hw,-hh],[hw,hh],[-hw,hh]].map(v=>[cx+v[0]*cA-v[1]*sA,cz+v[0]*sA+v[1]*cA]);
-          if(poly.some(v=>nearAnySeg(v[0],v[1],10)))continue;
+          if(poly.some(v=>isWater(v[0],v[1])||nearAnySeg(v[0],v[1],10)))continue;
           extFlat(poly,'#4ade80',0.20,0.14,sat?0.24:0.32,2);
           parkPolys.push(poly);
         }
       }
     }
-    if(topo&&osmBldsTile.length){
+    if(topo){
       const PBCOLS=['#f8fafc','#fef3c7','#e0f2fe','#fce7f3','#dcfce7','#f1f5f9'];
-      const pbMats=PBCOLS.map(c=>[M(c,{transparent:true,opacity:0.9}),M(c,{transparent:true,opacity:0.9})]);
+      const pbMats=PBCOLS.map(c=>[M(c,{transparent:true,opacity:0.92}),M(c,{transparent:true,opacity:0.92})]);
       osmBldsTile.slice(0,lite?250:650).forEach((b,idx)=>{
         const cs=b.pts;
         const lv=parseInt(b.tg['building:levels'])||0,h=lv?Math.min(38,Math.max(4.5,lv*3.5)):(5+((idx*13)%12));
@@ -1530,6 +1544,45 @@ async function cuteBuild(host,bd,say){
           m.position.y=0.25;m.castShadow=!lite;m.receiveShadow=true;world.add(m);
         }catch(e){}
       });
+      // Jika gedung OSM di kota tersebut masih sedikit (seperti Rengat), bangkitkan gedung 3D pastel di sepanjang rute & jalan utama seperti JejakLari
+      if(osmBldsTile.length<40){
+        const tLots=[],canTileLot=(x,z,rad)=>{
+          if(isWater(x,z))return false;
+          for(let i=0;i<maketSegs.length;i++){const s=maketSegs[i],md=s[4]+rad*0.72;if(distSeg2(x,z,s[0],s[1],s[2],s[3])<md*md)return false}
+          if(nearAnyBld(x,z,rad*1.4))return false;
+          for(const p of keep)if(Math.hypot(x-p[0],z-p[1])<rad+8)return false;
+          for(const q of parkW)if(inPoly(x,z,q))return false;
+          for(const q of parkPolys)if(inPoly(x,z,q))return false;
+          return true;
+        };
+        const waysT=[{pts:rp,w:10},...roadWaysTile.slice(0,30)],maxTL=lite?320:750;
+        for(let wi=0;wi<waysT.length&&tLots.length<maxTL;wi++){
+          const rw=waysT[wi],pts=rw.pts;let acc=0;
+          for(let i=0;i<pts.length-1&&tLots.length<maxTL;i++){
+            const a=pts[i],b=pts[i+1],dx=b[0]-a[0],dz=b[1]-a[1],len=Math.hypot(dx,dz);
+            if(len<6)continue;
+            const ux=dx/len,uz=dz/len,nx=-uz,nz=ux,ang=Math.atan2(dx,-dz),step=18+rnd()*8;
+            for(let d=Math.max(2,8-acc);d<=len&&tLots.length<maxTL;d+=step){
+              const px=a[0]+ux*Math.min(len-1,d),pz=a[1]+uz*Math.min(len-1,d);
+              for(const side of [-1,1]){
+                const bw=10+rnd()*11,bl=9+rnd()*9,bh=5.5+rnd()*11,off=(rw.w*0.5)+5+bl*0.5+rnd()*2;
+                const lx=px+nx*side*off,lz=pz+nz*side*off,rad=Math.hypot(bw,bl)*0.44;
+                if(!canTileLot(lx,lz,rad))continue;
+                maketBlds.push([lx,lz]);
+                tLots.push({x:lx,z:lz,w:bw,l:bl,h:bh,rot:-ang+(rnd()-.5)*0.03,c:PBCOLS[tLots.length%PBCOLS.length]});
+              }
+            }
+            acc=(acc+len)%18;
+          }
+        }
+        if(tLots.length){
+          const im=new T.InstancedMesh(new T.BoxGeometry(1,1,1),new T.MeshLambertMaterial({color:'#ffffff',transparent:true,opacity:0.9}),tLots.length);
+          const dm=new T.Object3D();
+          tLots.forEach((b,i)=>{dm.position.set(b.x,0.25+b.h*0.5,b.z);dm.scale.set(b.w,b.h,b.l);dm.rotation.set(0,b.rot,0);dm.updateMatrix();im.setMatrixAt(i,dm.matrix);im.setColorAt(i,new T.Color(b.c))});
+          im.instanceMatrix.needsUpdate=true;if(im.instanceColor)im.instanceColor.needsUpdate=true;
+          im.castShadow=!lite;im.receiveShadow=true;world.add(im);
+        }
+      }
     }
   }
   if(maket){
@@ -1669,15 +1722,30 @@ async function cuteBuild(host,bd,say){
       im.castShadow=!lite;im.receiveShadow=true;
       world.add(im);
     }
+    // 3. Isi halaman tengah blok kota yang masih terbuka (courtyard / open space di antara jalan & gedung) dengan taman hijau (#65d68a) agar tidak abu-abu kosong
+    {
+      const xsB=rp.map(q=>q[0]),zsB=rp.map(q=>q[1]);
+      const x0=Math.min(...xsB)-120,x1=Math.max(...xsB)+120,z0=Math.min(...zsB)-120,z1=Math.max(...zsB)+120;
+      const gStep=52;
+      for(let gx=x0;gx<=x1&&parkPolys.length<28;gx+=gStep){
+        for(let gz=z0;gz<=z1&&parkPolys.length<28;gz+=gStep){
+          const cx=gx+(rnd()-.5)*14,cz=gz+(rnd()-.5)*14,pw=18+rnd()*10,ph=15+rnd()*9,rad=Math.hypot(pw,ph);
+          if(isWater(cx,cz)||nearAnySeg(cx,cz,rad*0.85+8)||nearAnyBld(cx,cz,rad*0.78+6))continue;
+          let skip=false;
+          for(const p of keep)if(Math.hypot(cx-p[0],cz-p[1])<rad+10){skip=true;break}
+          for(const q of parkW)if(inPoly(cx,cz,q)){skip=true;break}
+          for(const q of parkPolys)if(inPoly(cx,cz,q)){skip=true;break}
+          if(skip)continue;
+          const poly=[[cx-pw,cz-ph],[cx+pw,cz-ph],[cx+pw,cz+ph],[cx-pw,cz+ph]];
+          if(poly.some(v=>isWater(v[0],v[1])||nearAnySeg(v[0],v[1],9)))continue;
+          extFlat(poly,'#65d68a',0.025,0.10);
+          parkPolys.push(poly);
+        }
+      }
+    }
   }
 
   say('Menanam pohon dan memasang objek...');await yd();if(stale())return;
-  const isWater=(x,z)=>{
-    if(!fl||fl.sat)return false;
-    const lng=L0+x/kx,lat=A0-z/ky,u=(tileX(lng,fl.z)-fl.tx0)*256,v=(tileY(lat,fl.z)-fl.ty0)*256;
-    if(u<0||v<0||u>=fl.cv.width||v>=fl.cv.height)return false;
-    try{const d=fl.c.getImageData(u|0,v|0,1,1).data;return d[2]-d[0]>25&&d[2]>190}catch(e){return false}
-  };
   const okTree=(x,z)=>{
     for(const p of sm)if(Math.hypot(x-p[0],z-p[1])<11)return false;
     for(const p of keep)if(Math.hypot(x-p[0],z-p[1])<9)return false;
